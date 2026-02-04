@@ -393,8 +393,17 @@ export default function Home() {
                       <Card className="hover-elevate cursor-pointer transition-all duration-200" data-testid={`card-search-result-${result.item.id}`}>
                         <CardContent className="p-4">
                           <div className="flex gap-3">
-                            <div className="flex-shrink-0 w-16 h-16 rounded-md bg-gradient-to-br from-primary/20 to-accent/30 flex items-center justify-center">
-                              <UtensilsCrossed className="h-6 w-6 text-primary/50" />
+                            <div className="flex-shrink-0 w-16 h-16 rounded-md bg-gradient-to-br from-primary/20 to-accent/30 flex items-center justify-center overflow-hidden">
+                              {result.item.imageUrl ? (
+                                <img
+                                  src={result.item.imageUrl}
+                                  alt={result.item.title}
+                                  className="w-full h-full object-cover"
+                                  data-testid={`image-search-result-${result.item.id}`}
+                                />
+                              ) : (
+                                <UtensilsCrossed className="h-6 w-6 text-primary/50" />
+                              )}
                             </div>
                             <div className="flex-1 min-w-0">
                               <h4 className="font-medium text-sm truncate">{result.item.title}</h4>

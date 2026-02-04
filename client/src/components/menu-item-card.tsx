@@ -50,10 +50,19 @@ export function MenuItemCard({ item, chef, onAddToCart }: MenuItemCardProps) {
       data-testid={`card-menu-item-${item.id}`}
     >
       <CardContent className="p-0">
-        <div className="relative h-40 bg-gradient-to-br from-primary/10 via-accent/10 to-secondary/20">
-          <div className="absolute inset-0 flex items-center justify-center">
-            <UtensilsCrossed className="h-12 w-12 text-primary/20" />
-          </div>
+        <div className="relative h-40 bg-gradient-to-br from-primary/10 via-accent/10 to-secondary/20 overflow-hidden">
+          {item.imageUrl ? (
+            <img
+              src={item.imageUrl}
+              alt={item.title}
+              className="absolute inset-0 w-full h-full object-cover"
+              data-testid={`image-menu-item-${item.id}`}
+            />
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <UtensilsCrossed className="h-12 w-12 text-primary/20" />
+            </div>
+          )}
           
           {isOutOfStock && (
             <div className="absolute inset-0 flex items-center justify-center bg-background/70">

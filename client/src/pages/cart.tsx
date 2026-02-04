@@ -115,8 +115,17 @@ export default function Cart() {
               <CardContent className="space-y-4">
                 {items.map((cartItem) => (
                   <div key={cartItem.menuItem.id} className="flex gap-4">
-                    <div className="h-20 w-20 rounded-md bg-gradient-to-br from-primary/10 via-accent/10 to-secondary/20 flex items-center justify-center shrink-0">
-                      <ChefHat className="h-8 w-8 text-primary/30" />
+                    <div className="h-20 w-20 rounded-md bg-gradient-to-br from-primary/10 via-accent/10 to-secondary/20 flex items-center justify-center shrink-0 overflow-hidden">
+                      {cartItem.menuItem.imageUrl ? (
+                        <img
+                          src={cartItem.menuItem.imageUrl}
+                          alt={cartItem.menuItem.title}
+                          className="w-full h-full object-cover"
+                          data-testid={`image-cart-item-${cartItem.menuItem.id}`}
+                        />
+                      ) : (
+                        <ChefHat className="h-8 w-8 text-primary/30" />
+                      )}
                     </div>
                     
                     <div className="flex-1 min-w-0">
