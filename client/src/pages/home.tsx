@@ -21,7 +21,7 @@ import { AllergenFilter } from "@/components/allergen-filter";
 import { LocationModal } from "@/components/location-modal";
 import { useLocationStore } from "@/lib/location-store";
 import { useFavoritesStore } from "@/lib/favorites-store";
-import type { ChefProfileWithMenus, Allergen } from "@shared/schema";
+import type { ChefProfileWithDaySlots, Allergen } from "@shared/schema";
 import { getDistance } from "geolib";
 
 export default function Home() {
@@ -39,7 +39,7 @@ export default function Home() {
     }
   }, [zipCode]);
 
-  const { data: chefs, isLoading: chefsLoading } = useQuery<ChefProfileWithMenus[]>({
+  const { data: chefs, isLoading: chefsLoading } = useQuery<ChefProfileWithDaySlots[]>({
     queryKey: ["/api/chefs"],
   });
 
@@ -76,25 +76,20 @@ export default function Home() {
 
     if (excludedAllergens.length > 0) {
       result = result.map((chef: any) => {
-        const filteredMenus = chef.menus?.map((menu: any) => ({
-          ...menu,
-          daySlots: menu.daySlots?.map((slot: any) => ({
-            ...slot,
-            items: slot.items?.filter((item: any) => {
-              const itemAllergenIds = item.allergens?.map((a: any) => a.id) || [];
-              return !excludedAllergens.some((excluded) =>
-                itemAllergenIds.includes(excluded)
-              );
-            }),
-          })),
+        const filteredDaySlots = chef.daySlots?.map((slot: any) => ({
+          ...slot,
+          items: slot.items?.filter((item: any) => {
+            const itemAllergenIds = item.allergens?.map((a: any) => a.id) || [];
+            return !excludedAllergens.some((excluded) =>
+              itemAllergenIds.includes(excluded)
+            );
+          }),
         }));
-        return { ...chef, menus: filteredMenus };
+        return { ...chef, daySlots: filteredDaySlots };
       });
 
       result = result.filter((chef: any) =>
-        chef.menus?.some((menu: any) => 
-          menu.daySlots?.some((slot: any) => (slot.items?.length || 0) > 0)
-        )
+        chef.daySlots?.some((slot: any) => (slot.items?.length || 0) > 0)
       );
     }
 
@@ -107,19 +102,16 @@ export default function Home() {
           tag.toLowerCase().includes(searchLower)
         );
 
-        // Filter menu items by search query (within day slots)
-        const filteredMenus = chef.menus?.map((menu: any) => ({
-          ...menu,
-          daySlots: menu.daySlots?.map((slot: any) => ({
-            ...slot,
-            items: slot.items?.filter((item: any) =>
-              item.title.toLowerCase().includes(searchLower) ||
-              item.description?.toLowerCase().includes(searchLower) ||
-              item.ingredients?.some((ing: any) => 
-                ing.name.toLowerCase().includes(searchLower)
-              )
-            ),
-          })),
+        // Filter day slot items by search query
+        const filteredDaySlots = chef.daySlots?.map((slot: any) => ({
+          ...slot,
+          items: slot.items?.filter((item: any) =>
+            item.title.toLowerCase().includes(searchLower) ||
+            item.description?.toLowerCase().includes(searchLower) ||
+            item.ingredients?.some((ing: any) => 
+              ing.name.toLowerCase().includes(searchLower)
+            )
+          ),
         }));
 
         // If chef name or cuisine matches, keep all items
@@ -128,7 +120,7 @@ export default function Home() {
           return chef;
         }
 
-        return { ...chef, menus: filteredMenus, matchedByDish: true };
+        return { ...chef, daySlots: filteredDaySlots, matchedByDish: true };
       });
 
       // Filter out chefs with no matching content
@@ -137,8 +129,8 @@ export default function Home() {
         const cuisineMatch = chef.cuisineTags?.some((tag: string) =>
           tag.toLowerCase().includes(searchLower)
         );
-        const hasMatchingItems = chef.menus?.some((menu: any) => 
-          menu.daySlots?.some((slot: any) => (slot.items?.length || 0) > 0)
+        const hasMatchingItems = chef.daySlots?.some((slot: any) => 
+          (slot.items?.length || 0) > 0
         );
 
         return chefNameMatch || cuisineMatch || hasMatchingItems;
@@ -157,30 +149,26 @@ export default function Home() {
     const matchingItems: Array<{
       chef: any;
       item: any;
-      menuTitle: string;
       dayDate: Date | string | null;
     }> = [];
 
     filteredChefs.forEach((chef: any) => {
-      chef.menus?.forEach((menu: any) => {
-        menu.daySlots?.forEach((slot: any) => {
-          slot.items?.forEach((item: any) => {
-            const itemMatches = 
-              item.title.toLowerCase().includes(searchLower) ||
-              item.description?.toLowerCase().includes(searchLower) ||
-              item.ingredients?.some((ing: any) => 
-                ing.name.toLowerCase().includes(searchLower)
-              );
-            
-            if (itemMatches) {
-              matchingItems.push({
-                chef,
-                item,
-                menuTitle: menu.title,
-                dayDate: slot.date,
-              });
-            }
-          });
+      chef.daySlots?.forEach((slot: any) => {
+        slot.items?.forEach((item: any) => {
+          const itemMatches = 
+            item.title.toLowerCase().includes(searchLower) ||
+            item.description?.toLowerCase().includes(searchLower) ||
+            item.ingredients?.some((ing: any) => 
+              ing.name.toLowerCase().includes(searchLower)
+            );
+          
+          if (itemMatches) {
+            matchingItems.push({
+              chef,
+              item,
+              dayDate: slot.date,
+            });
+          }
         });
       });
     });

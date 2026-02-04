@@ -5,7 +5,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Heart,
@@ -26,8 +25,9 @@ import { useFavoritesStore } from "@/lib/favorites-store";
 import { useCartStore } from "@/lib/cart-store";
 import { useLocationStore } from "@/lib/location-store";
 import { useToast } from "@/hooks/use-toast";
-import type { ChefProfileWithMenus, Allergen } from "@shared/schema";
+import type { ChefProfileWithDaySlots, Allergen } from "@shared/schema";
 import { getDistance } from "geolib";
+import { format, isBefore, parseISO } from "date-fns";
 
 export default function ChefProfile() {
   const { slug } = useParams<{ slug: string }>();
@@ -39,7 +39,7 @@ export default function ChefProfile() {
   const { toast } = useToast();
   const [pendingItem, setPendingItem] = useState<any>(null);
 
-  const { data: chef, isLoading: chefLoading } = useQuery<ChefProfileWithMenus>({
+  const { data: chef, isLoading: chefLoading } = useQuery<ChefProfileWithDaySlots>({
     queryKey: ["/api/chefs", slug],
     enabled: !!slug,
   });
@@ -59,43 +59,36 @@ export default function ChefProfile() {
 
   const favorite = chef ? isFavorite(chef.id) : false;
 
-  const activeMenus = useMemo(() => {
-    if (!chef?.menus) return [];
-    return chef.menus.filter((m) => m.status === "active");
+  // Get upcoming day slots (filter out past dates and sort by date)
+  const upcomingDaySlots = useMemo(() => {
+    if (!chef?.daySlots) return [];
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    return chef.daySlots
+      .filter((slot: any) => {
+        const slotDate = parseISO(slot.date);
+        return !isBefore(slotDate, today);
+      })
+      .sort((a: any, b: any) => 
+        parseISO(a.date).getTime() - parseISO(b.date).getTime()
+      );
   }, [chef]);
 
-  // Helper to get all items from a menu's day slots
-  const getMenuItems = (menu: any) => {
-    const allItems: any[] = [];
-    const seenIds = new Set<number>();
-    menu.daySlots?.forEach((slot: any) => {
-      slot.items?.forEach((item: any) => {
-        if (!seenIds.has(item.id)) {
-          seenIds.add(item.id);
-          allItems.push(item);
-        }
-      });
-    });
-    return allItems;
-  };
+  // Filter day slots by excluded allergens
+  const filteredDaySlots = useMemo(() => {
+    if (excludedAllergens.length === 0) return upcomingDaySlots;
 
-  // Filter items by excluded allergens within day slots
-  const filteredMenus = useMemo(() => {
-    if (excludedAllergens.length === 0) return activeMenus;
-
-    return activeMenus.map((menu: any) => ({
-      ...menu,
-      daySlots: menu.daySlots?.map((slot: any) => ({
-        ...slot,
-        items: slot.items?.filter((item: any) => {
-          const itemAllergenIds = item.allergens?.map((a: any) => a.id) || [];
-          return !excludedAllergens.some((excluded) =>
-            itemAllergenIds.includes(excluded)
-          );
-        }),
-      })),
+    return upcomingDaySlots.map((slot: any) => ({
+      ...slot,
+      items: slot.items?.filter((item: any) => {
+        const itemAllergenIds = item.allergens?.map((a: any) => a.id) || [];
+        return !excludedAllergens.some((excluded) =>
+          itemAllergenIds.includes(excluded)
+        );
+      }),
     }));
-  }, [activeMenus, excludedAllergens]);
+  }, [upcomingDaySlots, excludedAllergens]);
 
   const toggleAllergen = (allergenId: number) => {
     setExcludedAllergens((prev) =>
@@ -339,151 +332,63 @@ export default function ChefProfile() {
           </aside>
 
           <main>
-            {filteredMenus.length === 0 ? (
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-semibold">Upcoming Offerings</h2>
+              {filteredDaySlots.length > 0 && (
+                <Badge variant="outline" className="flex items-center gap-1.5">
+                  <Calendar className="h-3.5 w-3.5" />
+                  {filteredDaySlots.length} {filteredDaySlots.length === 1 ? 'day' : 'days'} available
+                </Badge>
+              )}
+            </div>
+
+            {filteredDaySlots.length === 0 ? (
               <Card>
                 <CardContent className="py-16 text-center">
                   <ChefHat className="h-16 w-16 mx-auto text-muted-foreground/30 mb-4" />
-                  <h3 className="text-lg font-medium mb-2">No Active Menus</h3>
+                  <h3 className="text-lg font-medium mb-2">No Upcoming Offerings</h3>
                   <p className="text-muted-foreground">
-                    This chef doesn't have any active menus right now.
+                    {excludedAllergens.length > 0
+                      ? "No offerings match your allergen filters. Try adjusting your filters."
+                      : "This chef doesn't have any upcoming food offerings scheduled."}
                   </p>
                 </CardContent>
               </Card>
-            ) : filteredMenus.length === 1 ? (
-              <div className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-xl font-semibold">{filteredMenus[0].title}</h2>
-                    {filteredMenus[0].description && (
-                      <p className="text-sm text-muted-foreground mt-1">
-                        {filteredMenus[0].description}
+            ) : (
+              <div className="space-y-8">
+                {filteredDaySlots.map((slot: any) => (
+                  <div key={slot.id} className="space-y-4" data-testid={`day-slot-${slot.id}`}>
+                    <div className="flex items-center gap-4 py-2 border-b">
+                      <h3 className="font-medium text-lg">
+                        {format(parseISO(slot.date), 'EEEE, MMM d')}
+                      </h3>
+                      <div className="flex items-center gap-1.5 text-sm text-amber-600 dark:text-amber-400">
+                        <Clock className="h-4 w-4" />
+                        Order by {format(parseISO(slot.orderCutoffDate), 'MMM d')}
+                      </div>
+                    </div>
+
+                    {slot.items?.length > 0 ? (
+                      <div className="grid sm:grid-cols-2 gap-6">
+                        {slot.items.map((item: any) => (
+                          <MenuItemCard
+                            key={`${slot.id}-${item.id}`}
+                            item={item}
+                            chef={chef}
+                            onAddToCart={() => handleAddToCart(item)}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground py-4">
+                        {excludedAllergens.length > 0
+                          ? "No items match your allergen filters for this day."
+                          : "No items scheduled for this day."}
                       </p>
                     )}
                   </div>
-                  {(filteredMenus[0] as any).startDate && (filteredMenus[0] as any).endDate && (
-                    <Badge variant="outline" className="flex items-center gap-1.5">
-                      <Calendar className="h-3.5 w-3.5" />
-                      {new Date((filteredMenus[0] as any).startDate).toLocaleDateString()} - {new Date((filteredMenus[0] as any).endDate).toLocaleDateString()}
-                    </Badge>
-                  )}
-                </div>
-
-                {/* Display items by day slots */}
-                {(filteredMenus[0] as any).daySlots?.length > 0 ? (
-                  (filteredMenus[0] as any).daySlots.map((slot: any) => (
-                    <div key={slot.id} className="space-y-4">
-                      <div className="flex items-center gap-4 py-2 border-b">
-                        <h3 className="font-medium">
-                          {new Date(slot.date).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
-                        </h3>
-                        <div className="flex items-center gap-1.5 text-sm text-amber-600 dark:text-amber-400">
-                          <Clock className="h-4 w-4" />
-                          Order by {new Date(slot.orderCutoffDate).toLocaleDateString()}
-                        </div>
-                      </div>
-
-                      {slot.items?.length > 0 ? (
-                        <div className="grid sm:grid-cols-2 gap-6">
-                          {slot.items.map((item: any) => (
-                            <MenuItemCard
-                              key={`${slot.id}-${item.id}`}
-                              item={item}
-                              chef={chef}
-                              onAddToCart={() => handleAddToCart(item)}
-                            />
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-sm text-muted-foreground py-4">No items available for this day after filtering.</p>
-                      )}
-                    </div>
-                  ))
-                ) : (
-                  <Card>
-                    <CardContent className="py-12 text-center">
-                      <p className="text-muted-foreground">No available days for this menu.</p>
-                    </CardContent>
-                  </Card>
-                )}
-              </div>
-            ) : (
-              <Tabs defaultValue={filteredMenus[0]?.id.toString()} className="space-y-6">
-                <TabsList className="flex-wrap h-auto gap-1 bg-transparent p-0">
-                  {filteredMenus.map((menu) => (
-                    <TabsTrigger
-                      key={menu.id}
-                      value={menu.id.toString()}
-                      className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
-                      data-testid={`tab-menu-${menu.id}`}
-                    >
-                      {menu.title}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-
-                {filteredMenus.map((menu: any) => (
-                  <TabsContent key={menu.id} value={menu.id.toString()} className="space-y-6">
-                    {menu.description && (
-                      <p className="text-muted-foreground">{menu.description}</p>
-                    )}
-
-                    <div className="flex flex-wrap items-center gap-4 text-sm">
-                      {menu.startDate && menu.endDate && (
-                        <Badge variant="outline" className="flex items-center gap-1.5">
-                          <Calendar className="h-3.5 w-3.5" />
-                          {new Date(menu.startDate).toLocaleDateString()} - {new Date(menu.endDate).toLocaleDateString()}
-                        </Badge>
-                      )}
-                    </div>
-
-                    {/* Display items by day slots */}
-                    {menu.daySlots?.length > 0 ? (
-                      menu.daySlots.map((slot: any) => (
-                        <div key={slot.id} className="space-y-4">
-                          <div className="flex items-center gap-4 py-2 border-b">
-                            <h3 className="font-medium">
-                              {new Date(slot.date).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
-                            </h3>
-                            <div className="flex items-center gap-1.5 text-sm text-amber-600 dark:text-amber-400">
-                              <Clock className="h-4 w-4" />
-                              Order by {new Date(slot.orderCutoffDate).toLocaleDateString()}
-                            </div>
-                          </div>
-
-                          {slot.items?.length > 0 ? (
-                            <div className="grid sm:grid-cols-2 gap-6">
-                              {slot.items.map((item: any) => (
-                                <MenuItemCard
-                                  key={`${slot.id}-${item.id}`}
-                                  item={item}
-                                  chef={chef}
-                                  onAddToCart={() => handleAddToCart(item)}
-                                />
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="text-sm text-muted-foreground py-4">
-                              {excludedAllergens.length > 0
-                                ? "No items match your allergen filters for this day."
-                                : "No items available for this day."}
-                            </p>
-                          )}
-                        </div>
-                      ))
-                    ) : (
-                      <Card>
-                        <CardContent className="py-12 text-center">
-                          <p className="text-muted-foreground">
-                            {excludedAllergens.length > 0
-                              ? "No items match your allergen filters."
-                              : "No items in this menu."}
-                          </p>
-                        </CardContent>
-                      </Card>
-                    )}
-                  </TabsContent>
                 ))}
-              </Tabs>
+              </div>
             )}
           </main>
         </div>
