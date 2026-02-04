@@ -360,10 +360,10 @@ export default function ChefProfile() {
                       </p>
                     )}
                   </div>
-                  {(filteredMenus[0] as any).weekStartDate && (
+                  {(filteredMenus[0] as any).startDate && (filteredMenus[0] as any).endDate && (
                     <Badge variant="outline" className="flex items-center gap-1.5">
                       <Calendar className="h-3.5 w-3.5" />
-                      Week of {new Date((filteredMenus[0] as any).weekStartDate).toLocaleDateString()}
+                      {new Date((filteredMenus[0] as any).startDate).toLocaleDateString()} - {new Date((filteredMenus[0] as any).endDate).toLocaleDateString()}
                     </Badge>
                   )}
                 </div>
@@ -428,10 +428,10 @@ export default function ChefProfile() {
                     )}
 
                     <div className="flex flex-wrap items-center gap-4 text-sm">
-                      {menu.weekStartDate && (
+                      {menu.startDate && menu.endDate && (
                         <Badge variant="outline" className="flex items-center gap-1.5">
                           <Calendar className="h-3.5 w-3.5" />
-                          Week of {new Date(menu.weekStartDate).toLocaleDateString()}
+                          {new Date(menu.startDate).toLocaleDateString()} - {new Date(menu.endDate).toLocaleDateString()}
                         </Badge>
                       )}
                     </div>

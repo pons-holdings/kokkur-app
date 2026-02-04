@@ -25,13 +25,14 @@ export const chefProfiles = pgTable("chef_profiles", {
   deliveryFee: real("delivery_fee").default(0),
 });
 
-// Menus (represents a week of offerings)
+// Menus (represents a date range of offerings)
 export const menus = pgTable("menus", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   chefId: integer("chef_id").notNull().references(() => chefProfiles.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   description: text("description"),
-  weekStartDate: timestamp("week_start_date").notNull(), // Monday of the week
+  startDate: timestamp("start_date").notNull(),
+  endDate: timestamp("end_date").notNull(),
   status: menuStatusEnum("status").notNull().default("draft"),
 });
 

@@ -431,7 +431,8 @@ export class DatabaseStorage implements IStorage {
       title: "Week of February 3rd",
       description: "Fresh winter menu featuring hearty Mexican comfort food",
       status: "active",
-      weekStartDate: new Date("2026-02-03"),
+      startDate: new Date("2026-02-03"),
+      endDate: new Date("2026-02-09"),
     });
 
     // Create day slots for menu1 (multiple days in the week)
@@ -451,7 +452,8 @@ export class DatabaseStorage implements IStorage {
       title: "Sunday Feast Menu",
       description: "Traditional Italian family-style dishes",
       status: "active",
-      weekStartDate: new Date("2026-02-03"),
+      startDate: new Date("2026-02-03"),
+      endDate: new Date("2026-02-09"),
     });
 
     // Create day slot for menu2
@@ -466,7 +468,8 @@ export class DatabaseStorage implements IStorage {
       title: "Lunar New Year Special",
       description: "Celebrate with authentic Asian flavors",
       status: "active",
-      weekStartDate: new Date("2026-02-03"),
+      startDate: new Date("2026-02-03"),
+      endDate: new Date("2026-02-09"),
     });
 
     // Create day slots for menu3

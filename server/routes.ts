@@ -61,7 +61,8 @@ export async function registerRoutes(
     chefId: z.number(),
     title: z.string().min(2),
     description: z.string().optional(),
-    weekStartDate: z.string(), // Required: the Monday of the week
+    startDate: z.string(),
+    endDate: z.string(),
     status: z.enum(["draft", "active", "archived"]).default("draft"),
   });
 
@@ -86,7 +87,8 @@ export async function registerRoutes(
         chefId: data.chefId,
         title: data.title,
         description: data.description,
-        weekStartDate: new Date(data.weekStartDate),
+        startDate: new Date(data.startDate),
+        endDate: new Date(data.endDate),
         status: data.status,
       });
       res.status(201).json(menu);
@@ -102,7 +104,8 @@ export async function registerRoutes(
   const updateMenuSchema = z.object({
     title: z.string().min(2).optional(),
     description: z.string().optional(),
-    weekStartDate: z.string().optional(),
+    startDate: z.string().optional(),
+    endDate: z.string().optional(),
     status: z.enum(["draft", "active", "archived"]).optional(),
   });
 
@@ -114,7 +117,8 @@ export async function registerRoutes(
       }
       const validated = updateMenuSchema.parse(req.body);
       const data: any = { ...validated };
-      if (data.weekStartDate) data.weekStartDate = new Date(data.weekStartDate);
+      if (data.startDate) data.startDate = new Date(data.startDate);
+      if (data.endDate) data.endDate = new Date(data.endDate);
       const menu = await storage.updateMenu(menuId, data);
       if (!menu) {
         return res.status(404).json({ error: "Menu not found" });
