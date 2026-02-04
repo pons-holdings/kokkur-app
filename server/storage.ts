@@ -1,12 +1,13 @@
 import { 
   chefProfiles, menus, menuDaySlots, menuItems, menuItemAssignments, ingredients, allergens,
   itemIngredients, itemAllergens, orders, orderItems, userFavorites,
-  servingOptions, itemPhotos, ingredientAllergens,
+  servingOptions, itemPhotos, ingredientAllergens, assignmentServingOptions,
   type ChefProfile, type InsertChefProfile,
   type Menu, type InsertMenu,
   type MenuDaySlot, type InsertMenuDaySlot,
   type MenuItem, type InsertMenuItem,
   type MenuItemAssignment, type InsertMenuItemAssignment,
+  type AssignmentServingOption, type InsertAssignmentServingOption,
   type Ingredient, type InsertIngredient,
   type Allergen, type InsertAllergen,
   type Order, type InsertOrder,
@@ -15,7 +16,8 @@ import {
   type ServingOption, type InsertServingOption,
   type ItemPhoto, type InsertItemPhoto,
   type IngredientWithAllergens,
-  type MenuItemWithDetails, type MenuItemWithAssignment, type DaySlotWithItems, type MenuWithDaySlots, type ChefProfileWithDaySlots, type OrderWithItems
+  type MenuItemWithDetails, type MenuItemWithAssignment, type DaySlotWithItems, type MenuWithDaySlots, type ChefProfileWithDaySlots, type OrderWithItems,
+  type AssignedServingOptionWithDetails
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, ilike, sql } from "drizzle-orm";
@@ -66,12 +68,17 @@ export interface IStorage {
   deleteItemPhoto(id: number): Promise<boolean>;
   setCoverPhoto(menuItemId: number, photoId: number): Promise<void>;
 
-  // Day Slot-Item Assignments (many-to-many with per-day stock)
-  assignItemToDaySlot(daySlotId: number, menuItemId: number, stockLimited?: boolean, stockQuantity?: number): Promise<MenuItemAssignment>;
-  updateDaySlotItemAssignment(daySlotId: number, menuItemId: number, stockLimited: boolean, stockQuantity?: number): Promise<void>;
+  // Day Slot-Item Assignments (many-to-many)
+  assignItemToDaySlot(daySlotId: number, menuItemId: number): Promise<MenuItemAssignment>;
   removeItemFromDaySlot(daySlotId: number, menuItemId: number): Promise<void>;
   getItemsForDaySlot(daySlotId: number): Promise<MenuItemWithAssignment[]>;
   getAssignmentForDaySlot(daySlotId: number, menuItemId: number): Promise<MenuItemAssignment | undefined>;
+  
+  // Assignment Serving Options (per-serving-size stock tracking)
+  addAssignmentServingOption(assignmentId: number, servingOptionId: number, stockLimited?: boolean, stockQuantity?: number): Promise<AssignmentServingOption>;
+  updateAssignmentServingOption(id: number, stockLimited: boolean, stockQuantity?: number): Promise<void>;
+  removeAssignmentServingOption(id: number): Promise<void>;
+  getAssignmentServingOptions(assignmentId: number): Promise<AssignedServingOptionWithDetails[]>;
 
   // Ingredients & Allergens
   getIngredients(): Promise<Ingredient[]>;
@@ -279,29 +286,13 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
-  // Item assignments to day slots with per-day stock
-  async assignItemToDaySlot(daySlotId: number, menuItemId: number, stockLimited?: boolean, stockQuantity?: number): Promise<MenuItemAssignment> {
+  // Item assignments to day slots
+  async assignItemToDaySlot(daySlotId: number, menuItemId: number): Promise<MenuItemAssignment> {
     const [assignment] = await db.insert(menuItemAssignments).values({ 
       daySlotId, 
-      menuItemId,
-      stockLimited: stockLimited ? 1 : 0,
-      stockQuantity: stockQuantity ?? null
+      menuItemId
     }).returning();
     return assignment;
-  }
-
-  async updateDaySlotItemAssignment(daySlotId: number, menuItemId: number, stockLimited: boolean, stockQuantity?: number): Promise<void> {
-    await db.update(menuItemAssignments)
-      .set({ 
-        stockLimited: stockLimited ? 1 : 0,
-        stockQuantity: stockQuantity ?? null
-      })
-      .where(
-        and(
-          eq(menuItemAssignments.daySlotId, daySlotId),
-          eq(menuItemAssignments.menuItemId, menuItemId)
-        )
-      );
   }
 
   async getAssignmentForDaySlot(daySlotId: number, menuItemId: number): Promise<MenuItemAssignment | undefined> {
@@ -313,6 +304,46 @@ export class DatabaseStorage implements IStorage {
         )
       );
     return assignment || undefined;
+  }
+  
+  // Assignment Serving Options
+  async addAssignmentServingOption(assignmentId: number, servingOptionId: number, stockLimited?: boolean, stockQuantity?: number): Promise<AssignmentServingOption> {
+    const [option] = await db.insert(assignmentServingOptions).values({
+      assignmentId,
+      servingOptionId,
+      stockLimited: stockLimited ? 1 : 0,
+      stockQuantity: stockQuantity ?? null
+    }).returning();
+    return option;
+  }
+  
+  async updateAssignmentServingOption(id: number, stockLimited: boolean, stockQuantity?: number): Promise<void> {
+    await db.update(assignmentServingOptions)
+      .set({
+        stockLimited: stockLimited ? 1 : 0,
+        stockQuantity: stockQuantity ?? null
+      })
+      .where(eq(assignmentServingOptions.id, id));
+  }
+  
+  async removeAssignmentServingOption(id: number): Promise<void> {
+    await db.delete(assignmentServingOptions).where(eq(assignmentServingOptions.id, id));
+  }
+  
+  async getAssignmentServingOptions(assignmentId: number): Promise<AssignedServingOptionWithDetails[]> {
+    const result = await db
+      .select({ 
+        assignmentServingOption: assignmentServingOptions,
+        servingOption: servingOptions
+      })
+      .from(assignmentServingOptions)
+      .innerJoin(servingOptions, eq(assignmentServingOptions.servingOptionId, servingOptions.id))
+      .where(eq(assignmentServingOptions.assignmentId, assignmentId));
+    
+    return result.map(r => ({
+      ...r.assignmentServingOption,
+      servingOption: r.servingOption
+    }));
   }
 
   async removeItemFromDaySlot(daySlotId: number, menuItemId: number): Promise<void> {
@@ -338,6 +369,7 @@ export class DatabaseStorage implements IStorage {
         const servingOptionsList = await this.getServingOptionsByMenuItemId(r.menuItem.id);
         const photosList = await this.getPhotosByMenuItemId(r.menuItem.id);
         const coverPhotoObj = photosList.find(p => p.isCover === 1);
+        const assignedServingOptionsList = await this.getAssignmentServingOptions(r.assignment.id);
         return { 
           ...r.menuItem, 
           ingredients: ingredientsList, 
@@ -346,8 +378,7 @@ export class DatabaseStorage implements IStorage {
           photos: photosList,
           coverPhoto: coverPhotoObj?.imageUrl,
           assignmentId: r.assignment.id,
-          stockLimited: r.assignment.stockLimited,
-          stockQuantity: r.assignment.stockQuantity
+          assignedServingOptions: assignedServingOptionsList
         };
       })
     );

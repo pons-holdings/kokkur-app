@@ -71,11 +71,18 @@ export const itemPhotos = pgTable("item_photos", {
   sortOrder: integer("sort_order").notNull().default(0),
 });
 
-// Menu Item Assignments (many-to-many: items assigned to specific day slots with per-day stock)
+// Menu Item Assignments (many-to-many: items assigned to specific day slots)
 export const menuItemAssignments = pgTable("menu_item_assignments", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   daySlotId: integer("day_slot_id").notNull().references(() => menuDaySlots.id, { onDelete: "cascade" }),
   menuItemId: integer("menu_item_id").notNull().references(() => menuItems.id, { onDelete: "cascade" }),
+});
+
+// Assignment Serving Options (which serving sizes are offered for each assignment, with per-size stock)
+export const assignmentServingOptions = pgTable("assignment_serving_options", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  assignmentId: integer("assignment_id").notNull().references(() => menuItemAssignments.id, { onDelete: "cascade" }),
+  servingOptionId: integer("serving_option_id").notNull().references(() => servingOptions.id, { onDelete: "cascade" }),
   stockQuantity: integer("stock_quantity"), // null means unlimited
   stockLimited: integer("stock_limited").notNull().default(0), // Boolean as integer
 });
@@ -205,7 +212,7 @@ export const itemPhotosRelations = relations(itemPhotos, ({ one }) => ({
   }),
 }));
 
-export const menuItemAssignmentsRelations = relations(menuItemAssignments, ({ one }) => ({
+export const menuItemAssignmentsRelations = relations(menuItemAssignments, ({ one, many }) => ({
   daySlot: one(menuDaySlots, {
     fields: [menuItemAssignments.daySlotId],
     references: [menuDaySlots.id],
@@ -213,6 +220,18 @@ export const menuItemAssignmentsRelations = relations(menuItemAssignments, ({ on
   menuItem: one(menuItems, {
     fields: [menuItemAssignments.menuItemId],
     references: [menuItems.id],
+  }),
+  assignedServingOptions: many(assignmentServingOptions),
+}));
+
+export const assignmentServingOptionsRelations = relations(assignmentServingOptions, ({ one }) => ({
+  assignment: one(menuItemAssignments, {
+    fields: [assignmentServingOptions.assignmentId],
+    references: [menuItemAssignments.id],
+  }),
+  servingOption: one(servingOptions, {
+    fields: [assignmentServingOptions.servingOptionId],
+    references: [servingOptions.id],
   }),
 }));
 
@@ -291,6 +310,7 @@ export const insertMenuSchema = createInsertSchema(menus).omit({ id: true });
 export const insertMenuDaySlotSchema = createInsertSchema(menuDaySlots).omit({ id: true });
 export const insertMenuItemSchema = createInsertSchema(menuItems).omit({ id: true });
 export const insertMenuItemAssignmentSchema = createInsertSchema(menuItemAssignments).omit({ id: true });
+export const insertAssignmentServingOptionSchema = createInsertSchema(assignmentServingOptions).omit({ id: true });
 export const insertServingOptionSchema = createInsertSchema(servingOptions).omit({ id: true });
 export const insertItemPhotoSchema = createInsertSchema(itemPhotos).omit({ id: true });
 export const insertIngredientSchema = createInsertSchema(ingredients).omit({ id: true });
@@ -331,6 +351,8 @@ export type ItemAllergen = typeof itemAllergens.$inferSelect;
 export type InsertItemAllergen = z.infer<typeof insertItemAllergenSchema>;
 export type MenuItemAssignment = typeof menuItemAssignments.$inferSelect;
 export type InsertMenuItemAssignment = z.infer<typeof insertMenuItemAssignmentSchema>;
+export type AssignmentServingOption = typeof assignmentServingOptions.$inferSelect;
+export type InsertAssignmentServingOption = z.infer<typeof insertAssignmentServingOptionSchema>;
 export type UserFavorite = typeof userFavorites.$inferSelect;
 export type InsertUserFavorite = z.infer<typeof insertUserFavoriteSchema>;
 
@@ -347,15 +369,20 @@ export type MenuItemWithDetails = MenuItem & {
   coverPhoto?: string; // convenience field for the cover photo URL
 };
 
-// Extended type that includes assignment-level stock info for day slot views
+// Assigned serving option with stock info
+export type AssignedServingOptionWithDetails = AssignmentServingOption & {
+  servingOption: ServingOption;
+};
+
+// Extended type that includes assignment-level serving options and stock info
 export type MenuItemWithAssignment = MenuItemWithDetails & {
   assignmentId: number;
-  stockLimited: number;
-  stockQuantity: number | null;
+  assignedServingOptions: AssignedServingOptionWithDetails[];
 };
 
 export type DaySlotItemAssignment = MenuItemAssignment & {
   menuItem: MenuItemWithDetails;
+  assignedServingOptions: AssignedServingOptionWithDetails[];
 };
 
 export type DaySlotWithItems = MenuDaySlot & {
