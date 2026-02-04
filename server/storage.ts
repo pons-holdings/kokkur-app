@@ -1,6 +1,7 @@
 import { 
   chefProfiles, menus, menuDaySlots, menuItems, menuItemAssignments, ingredients, allergens,
   itemIngredients, itemAllergens, orders, orderItems, userFavorites,
+  servingOptions, itemPhotos, ingredientAllergens,
   type ChefProfile, type InsertChefProfile,
   type Menu, type InsertMenu,
   type MenuDaySlot, type InsertMenuDaySlot,
@@ -11,10 +12,13 @@ import {
   type Order, type InsertOrder,
   type OrderItem, type InsertOrderItem,
   type InsertItemIngredient, type InsertItemAllergen,
+  type ServingOption, type InsertServingOption,
+  type ItemPhoto, type InsertItemPhoto,
+  type IngredientWithAllergens,
   type MenuItemWithDetails, type DaySlotWithItems, type MenuWithDaySlots, type ChefProfileWithDaySlots, type OrderWithItems
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, inArray, sql } from "drizzle-orm";
+import { eq, and, ilike, sql } from "drizzle-orm";
 
 export interface IStorage {
   // Chefs
@@ -43,24 +47,45 @@ export interface IStorage {
   createMenuItem(item: InsertMenuItem): Promise<MenuItem>;
   updateMenuItem(id: number, item: Partial<InsertMenuItem>): Promise<MenuItem | undefined>;
   deleteMenuItem(id: number): Promise<boolean>;
-  updateMenuItemStock(id: number, quantity: number): Promise<void>;
   addItemIngredients(menuItemId: number, ingredientIds: number[]): Promise<void>;
   addItemAllergens(menuItemId: number, allergenIds: number[]): Promise<void>;
   clearItemIngredients(menuItemId: number): Promise<void>;
   clearItemAllergens(menuItemId: number): Promise<void>;
 
-  // Day Slot-Item Assignments (many-to-many)
-  assignItemToDaySlot(daySlotId: number, menuItemId: number): Promise<void>;
+  // Serving Options
+  getServingOptionsByMenuItemId(menuItemId: number): Promise<ServingOption[]>;
+  createServingOption(option: InsertServingOption): Promise<ServingOption>;
+  updateServingOption(id: number, option: Partial<InsertServingOption>): Promise<ServingOption | undefined>;
+  deleteServingOption(id: number): Promise<boolean>;
+  clearServingOptions(menuItemId: number): Promise<void>;
+
+  // Item Photos
+  getPhotosByMenuItemId(menuItemId: number): Promise<ItemPhoto[]>;
+  createItemPhoto(photo: InsertItemPhoto): Promise<ItemPhoto>;
+  updateItemPhoto(id: number, photo: Partial<InsertItemPhoto>): Promise<ItemPhoto | undefined>;
+  deleteItemPhoto(id: number): Promise<boolean>;
+  setCoverPhoto(menuItemId: number, photoId: number): Promise<void>;
+
+  // Day Slot-Item Assignments (many-to-many with per-day stock)
+  assignItemToDaySlot(daySlotId: number, menuItemId: number, stockLimited?: boolean, stockQuantity?: number): Promise<MenuItemAssignment>;
+  updateDaySlotItemAssignment(daySlotId: number, menuItemId: number, stockLimited: boolean, stockQuantity?: number): Promise<void>;
   removeItemFromDaySlot(daySlotId: number, menuItemId: number): Promise<void>;
   getItemsForDaySlot(daySlotId: number): Promise<MenuItemWithDetails[]>;
+  getAssignmentForDaySlot(daySlotId: number, menuItemId: number): Promise<MenuItemAssignment | undefined>;
 
   // Ingredients & Allergens
   getIngredients(): Promise<Ingredient[]>;
+  searchIngredients(query: string): Promise<Ingredient[]>;
   getAllergens(): Promise<Allergen[]>;
   createIngredient(ingredient: InsertIngredient): Promise<Ingredient>;
   createAllergen(allergen: InsertAllergen): Promise<Allergen>;
   getIngredientsByMenuItemId(menuItemId: number): Promise<Ingredient[]>;
   getAllergensByMenuItemId(menuItemId: number): Promise<Allergen[]>;
+  getIngredientsWithAllergens(): Promise<IngredientWithAllergens[]>;
+  getIngredientWithAllergens(id: number): Promise<IngredientWithAllergens | undefined>;
+  addIngredientAllergen(ingredientId: number, allergenId: number): Promise<void>;
+  removeIngredientAllergen(ingredientId: number, allergenId: number): Promise<void>;
+  getAllergensByIngredientId(ingredientId: number): Promise<Allergen[]>;
 
   // Orders
   createOrder(order: InsertOrder): Promise<Order>;
@@ -137,19 +162,23 @@ export class DatabaseStorage implements IStorage {
     
     const ingredientsList = await this.getIngredientsByMenuItemId(id);
     const allergensList = await this.getAllergensByMenuItemId(id);
+    const servingOptionsList = await this.getServingOptionsByMenuItemId(id);
+    const photosList = await this.getPhotosByMenuItemId(id);
+    const coverPhotoObj = photosList.find(p => p.isCover === 1);
     
-    return { ...item, ingredients: ingredientsList, allergens: allergensList };
+    return { 
+      ...item, 
+      ingredients: ingredientsList, 
+      allergens: allergensList,
+      servingOptions: servingOptionsList,
+      photos: photosList,
+      coverPhoto: coverPhotoObj?.imageUrl
+    };
   }
 
   async createMenuItem(item: InsertMenuItem): Promise<MenuItem> {
     const [newItem] = await db.insert(menuItems).values(item).returning();
     return newItem;
-  }
-
-  async updateMenuItemStock(id: number, quantity: number): Promise<void> {
-    await db.update(menuItems)
-      .set({ stockQuantity: sql`${menuItems.stockQuantity} - ${quantity}` })
-      .where(eq(menuItems.id, id));
   }
 
   async addItemIngredients(menuItemId: number, ingredientIds: number[]): Promise<void> {
@@ -189,7 +218,17 @@ export class DatabaseStorage implements IStorage {
       items.map(async (item) => {
         const ingredientsList = await this.getIngredientsByMenuItemId(item.id);
         const allergensList = await this.getAllergensByMenuItemId(item.id);
-        return { ...item, ingredients: ingredientsList, allergens: allergensList };
+        const servingOptionsList = await this.getServingOptionsByMenuItemId(item.id);
+        const photosList = await this.getPhotosByMenuItemId(item.id);
+        const coverPhotoObj = photosList.find(p => p.isCover === 1);
+        return { 
+          ...item, 
+          ingredients: ingredientsList, 
+          allergens: allergensList,
+          servingOptions: servingOptionsList,
+          photos: photosList,
+          coverPhoto: coverPhotoObj?.imageUrl
+        };
       })
     );
     
@@ -240,9 +279,40 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
-  // Item assignments to day slots
-  async assignItemToDaySlot(daySlotId: number, menuItemId: number): Promise<void> {
-    await db.insert(menuItemAssignments).values({ daySlotId, menuItemId }).onConflictDoNothing();
+  // Item assignments to day slots with per-day stock
+  async assignItemToDaySlot(daySlotId: number, menuItemId: number, stockLimited?: boolean, stockQuantity?: number): Promise<MenuItemAssignment> {
+    const [assignment] = await db.insert(menuItemAssignments).values({ 
+      daySlotId, 
+      menuItemId,
+      stockLimited: stockLimited ? 1 : 0,
+      stockQuantity: stockQuantity ?? null
+    }).returning();
+    return assignment;
+  }
+
+  async updateDaySlotItemAssignment(daySlotId: number, menuItemId: number, stockLimited: boolean, stockQuantity?: number): Promise<void> {
+    await db.update(menuItemAssignments)
+      .set({ 
+        stockLimited: stockLimited ? 1 : 0,
+        stockQuantity: stockQuantity ?? null
+      })
+      .where(
+        and(
+          eq(menuItemAssignments.daySlotId, daySlotId),
+          eq(menuItemAssignments.menuItemId, menuItemId)
+        )
+      );
+  }
+
+  async getAssignmentForDaySlot(daySlotId: number, menuItemId: number): Promise<MenuItemAssignment | undefined> {
+    const [assignment] = await db.select().from(menuItemAssignments)
+      .where(
+        and(
+          eq(menuItemAssignments.daySlotId, daySlotId),
+          eq(menuItemAssignments.menuItemId, menuItemId)
+        )
+      );
+    return assignment || undefined;
   }
 
   async removeItemFromDaySlot(daySlotId: number, menuItemId: number): Promise<void> {
@@ -265,7 +335,17 @@ export class DatabaseStorage implements IStorage {
       result.map(async (r) => {
         const ingredientsList = await this.getIngredientsByMenuItemId(r.menuItem.id);
         const allergensList = await this.getAllergensByMenuItemId(r.menuItem.id);
-        return { ...r.menuItem, ingredients: ingredientsList, allergens: allergensList };
+        const servingOptionsList = await this.getServingOptionsByMenuItemId(r.menuItem.id);
+        const photosList = await this.getPhotosByMenuItemId(r.menuItem.id);
+        const coverPhotoObj = photosList.find(p => p.isCover === 1);
+        return { 
+          ...r.menuItem, 
+          ingredients: ingredientsList, 
+          allergens: allergensList,
+          servingOptions: servingOptionsList,
+          photos: photosList,
+          coverPhoto: coverPhotoObj?.imageUrl
+        };
       })
     );
     
@@ -308,6 +388,108 @@ export class DatabaseStorage implements IStorage {
       .where(eq(itemAllergens.menuItemId, menuItemId));
     
     return result.map((r) => r.allergen);
+  }
+
+  // Serving Options
+  async getServingOptionsByMenuItemId(menuItemId: number): Promise<ServingOption[]> {
+    return db.select().from(servingOptions).where(eq(servingOptions.menuItemId, menuItemId));
+  }
+
+  async createServingOption(option: InsertServingOption): Promise<ServingOption> {
+    const [newOption] = await db.insert(servingOptions).values(option).returning();
+    return newOption;
+  }
+
+  async updateServingOption(id: number, option: Partial<InsertServingOption>): Promise<ServingOption | undefined> {
+    const [updated] = await db.update(servingOptions).set(option).where(eq(servingOptions.id, id)).returning();
+    return updated;
+  }
+
+  async deleteServingOption(id: number): Promise<boolean> {
+    const result = await db.delete(servingOptions).where(eq(servingOptions.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async clearServingOptions(menuItemId: number): Promise<void> {
+    await db.delete(servingOptions).where(eq(servingOptions.menuItemId, menuItemId));
+  }
+
+  // Item Photos
+  async getPhotosByMenuItemId(menuItemId: number): Promise<ItemPhoto[]> {
+    return db.select().from(itemPhotos).where(eq(itemPhotos.menuItemId, menuItemId));
+  }
+
+  async createItemPhoto(photo: InsertItemPhoto): Promise<ItemPhoto> {
+    const [newPhoto] = await db.insert(itemPhotos).values(photo).returning();
+    return newPhoto;
+  }
+
+  async updateItemPhoto(id: number, photo: Partial<InsertItemPhoto>): Promise<ItemPhoto | undefined> {
+    const [updated] = await db.update(itemPhotos).set(photo).where(eq(itemPhotos.id, id)).returning();
+    return updated;
+  }
+
+  async deleteItemPhoto(id: number): Promise<boolean> {
+    const result = await db.delete(itemPhotos).where(eq(itemPhotos.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async setCoverPhoto(menuItemId: number, photoId: number): Promise<void> {
+    // First, unset all cover photos for this item
+    await db.update(itemPhotos)
+      .set({ isCover: 0 })
+      .where(eq(itemPhotos.menuItemId, menuItemId));
+    // Then set the specified photo as cover
+    await db.update(itemPhotos)
+      .set({ isCover: 1 })
+      .where(eq(itemPhotos.id, photoId));
+  }
+
+  // Ingredient search
+  async searchIngredients(query: string): Promise<Ingredient[]> {
+    if (!query.trim()) return this.getIngredients();
+    return db.select().from(ingredients).where(ilike(ingredients.name, `%${query}%`));
+  }
+
+  // Ingredient-Allergen mappings
+  async getIngredientsWithAllergens(): Promise<IngredientWithAllergens[]> {
+    const allIngredients = await db.select().from(ingredients);
+    const ingredientsWithAllergens = await Promise.all(
+      allIngredients.map(async (ingredient) => {
+        const allergensList = await this.getAllergensByIngredientId(ingredient.id);
+        return { ...ingredient, allergens: allergensList };
+      })
+    );
+    return ingredientsWithAllergens;
+  }
+
+  async getIngredientWithAllergens(id: number): Promise<IngredientWithAllergens | undefined> {
+    const [ingredient] = await db.select().from(ingredients).where(eq(ingredients.id, id));
+    if (!ingredient) return undefined;
+    const allergensList = await this.getAllergensByIngredientId(id);
+    return { ...ingredient, allergens: allergensList };
+  }
+
+  async getAllergensByIngredientId(ingredientId: number): Promise<Allergen[]> {
+    const result = await db
+      .select({ allergen: allergens })
+      .from(ingredientAllergens)
+      .innerJoin(allergens, eq(ingredientAllergens.allergenId, allergens.id))
+      .where(eq(ingredientAllergens.ingredientId, ingredientId));
+    return result.map((r) => r.allergen);
+  }
+
+  async addIngredientAllergen(ingredientId: number, allergenId: number): Promise<void> {
+    await db.insert(ingredientAllergens).values({ ingredientId, allergenId }).onConflictDoNothing();
+  }
+
+  async removeIngredientAllergen(ingredientId: number, allergenId: number): Promise<void> {
+    await db.delete(ingredientAllergens).where(
+      and(
+        eq(ingredientAllergens.ingredientId, ingredientId),
+        eq(ingredientAllergens.allergenId, allergenId)
+      )
+    );
   }
 
   async createOrder(order: InsertOrder): Promise<Order> {
@@ -353,16 +535,23 @@ export class DatabaseStorage implements IStorage {
 
     console.log("Seeding database...");
 
+    // FDA Big 9 Allergens + additional common allergens
     const allergensList = [
-      { name: "Milk", icon: "milk" },
-      { name: "Eggs", icon: "egg" },
-      { name: "Fish", icon: "fish" },
-      { name: "Shellfish", icon: "shrimp" },
-      { name: "Tree Nuts", icon: "nut" },
-      { name: "Peanuts", icon: "peanut" },
-      { name: "Wheat", icon: "wheat" },
-      { name: "Soy", icon: "soy" },
-      { name: "Sesame", icon: "sesame" },
+      { name: "Milk", icon: "milk", description: "Includes all dairy from cows, goats, sheep (casein, whey, lactose)" },
+      { name: "Eggs", icon: "egg", description: "All forms of chicken eggs" },
+      { name: "Fish", icon: "fish", description: "All finned fish species (salmon, tuna, cod, etc.)" },
+      { name: "Shellfish", icon: "shrimp", description: "Crustaceans: crab, lobster, shrimp (not mollusks)" },
+      { name: "Tree Nuts", icon: "nut", description: "Almonds, walnuts, pecans, cashews, pistachios, hazelnuts, pine nuts" },
+      { name: "Peanuts", icon: "peanut", description: "A legume (not a tree nut)" },
+      { name: "Wheat", icon: "wheat", description: "All species of genus Triticum" },
+      { name: "Soy", icon: "soy", description: "Tofu, soy sauce, soy milk, edamame, soy lecithin" },
+      { name: "Sesame", icon: "sesame", description: "Tahini, sesame oil, sesame seeds (added to FDA list 2023)" },
+      { name: "Gluten", icon: "wheat", description: "Found in wheat, barley, rye, and their derivatives" },
+      { name: "Mustard", icon: "leaf", description: "Common allergen in EU regulations" },
+      { name: "Celery", icon: "leaf", description: "Common allergen in EU regulations" },
+      { name: "Lupin", icon: "flower", description: "Legume commonly used in flour" },
+      { name: "Mollusks", icon: "shell", description: "Oysters, clams, mussels, squid, octopus" },
+      { name: "Sulfites", icon: "flask", description: "Preservatives in wine, dried fruits" },
     ];
 
     const createdAllergens = await Promise.all(
@@ -420,60 +609,31 @@ export class DatabaseStorage implements IStorage {
       deliveryFee: 6.99,
     });
 
-    const menu1 = await this.createMenu({
-      chefId: chef1.id,
-      title: "Week of February 3rd",
-      description: "Fresh winter menu featuring hearty Mexican comfort food",
-      status: "active",
-      startDate: new Date("2026-02-03"),
-      endDate: new Date("2026-02-09"),
-    });
-
-    // Create day slots for menu1 (multiple days in the week)
+    // Create day slots directly for chefs (calendar-based architecture)
     const daySlot1_1 = await this.createDaySlot({
-      menuId: menu1.id,
+      chefId: chef1.id,
       date: new Date("2026-02-05"),
       orderCutoffDate: new Date("2026-02-04"),
     });
     const daySlot1_2 = await this.createDaySlot({
-      menuId: menu1.id,
+      chefId: chef1.id,
       date: new Date("2026-02-07"),
       orderCutoffDate: new Date("2026-02-06"),
     });
 
-    const menu2 = await this.createMenu({
-      chefId: chef2.id,
-      title: "Sunday Feast Menu",
-      description: "Traditional Italian family-style dishes",
-      status: "active",
-      startDate: new Date("2026-02-03"),
-      endDate: new Date("2026-02-09"),
-    });
-
-    // Create day slot for menu2
     const daySlot2 = await this.createDaySlot({
-      menuId: menu2.id,
+      chefId: chef2.id,
       date: new Date("2026-02-08"),
       orderCutoffDate: new Date("2026-02-06"),
     });
 
-    const menu3 = await this.createMenu({
-      chefId: chef3.id,
-      title: "Lunar New Year Special",
-      description: "Celebrate with authentic Asian flavors",
-      status: "active",
-      startDate: new Date("2026-02-03"),
-      endDate: new Date("2026-02-09"),
-    });
-
-    // Create day slots for menu3
     const daySlot3_1 = await this.createDaySlot({
-      menuId: menu3.id,
+      chefId: chef3.id,
       date: new Date("2026-02-06"),
       orderCutoffDate: new Date("2026-02-04"),
     });
     const daySlot3_2 = await this.createDaySlot({
-      menuId: menu3.id,
+      chefId: chef3.id,
       date: new Date("2026-02-08"),
       orderCutoffDate: new Date("2026-02-06"),
     });
@@ -486,10 +646,9 @@ export class DatabaseStorage implements IStorage {
       chefId: chef1.id,
       title: "Chicken Enchiladas Verdes",
       description: "Tender shredded chicken wrapped in corn tortillas, smothered in tangy tomatillo salsa verde and melted cheese. Served with rice and beans.",
-      price: 16.99,
-      stockQuantity: 20,
-      unitType: "per meal",
     });
+    await this.createServingOption({ menuItemId: item1.id, servingSize: 1, label: "1 serving", price: 16.99, isDefault: 1 });
+    await this.createServingOption({ menuItemId: item1.id, servingSize: 2, label: "2 servings", price: 29.99, isDefault: 0 });
     await this.addItemAllergens(item1.id, [findAllergen("Milk")]);
     await this.addItemIngredients(item1.id, [findIngredient("Chicken"), findIngredient("Cheese"), findIngredient("Onions"), findIngredient("Rice")]);
     await this.assignItemToDaySlot(daySlot1_1.id, item1.id);
@@ -499,10 +658,9 @@ export class DatabaseStorage implements IStorage {
       chefId: chef1.id,
       title: "Vegetarian Tamales",
       description: "Handmade masa tamales filled with roasted poblano peppers and queso fresco, wrapped in corn husks.",
-      price: 14.99,
-      stockQuantity: 15,
-      unitType: "per dozen",
     });
+    await this.createServingOption({ menuItemId: item2.id, servingSize: 6, label: "Half dozen", price: 14.99, isDefault: 1 });
+    await this.createServingOption({ menuItemId: item2.id, servingSize: 12, label: "Full dozen", price: 26.99, isDefault: 0 });
     await this.addItemAllergens(item2.id, [findAllergen("Milk")]);
     await this.addItemIngredients(item2.id, [findIngredient("Cheese"), findIngredient("Bell Peppers")]);
     await this.assignItemToDaySlot(daySlot1_1.id, item2.id);
@@ -511,10 +669,9 @@ export class DatabaseStorage implements IStorage {
       chefId: chef1.id,
       title: "Carnitas Taco Platter",
       description: "Slow-braised pork carnitas with pickled onions, fresh cilantro, and homemade salsa. Includes 6 tacos.",
-      price: 18.99,
-      stockQuantity: 12,
-      unitType: "per platter",
     });
+    await this.createServingOption({ menuItemId: item3.id, servingSize: 1, label: "6 tacos", price: 18.99, isDefault: 1 });
+    await this.createServingOption({ menuItemId: item3.id, servingSize: 2, label: "12 tacos (party size)", price: 34.99, isDefault: 0 });
     await this.addItemIngredients(item3.id, [findIngredient("Pork"), findIngredient("Onions"), findIngredient("Garlic")]);
     await this.assignItemToDaySlot(daySlot1_2.id, item3.id);
 
@@ -523,10 +680,9 @@ export class DatabaseStorage implements IStorage {
       chefId: chef2.id,
       title: "Homemade Lasagna",
       description: "Layers of fresh pasta, rich beef bolognese, creamy bechamel, and aged parmesan. A family recipe perfected over generations.",
-      price: 24.99,
-      stockQuantity: 8,
-      unitType: "per tray",
     });
+    await this.createServingOption({ menuItemId: item4.id, servingSize: 2, label: "Half tray (2-3 servings)", price: 24.99, isDefault: 1 });
+    await this.createServingOption({ menuItemId: item4.id, servingSize: 4, label: "Full tray (4-6 servings)", price: 44.99, isDefault: 0 });
     await this.addItemAllergens(item4.id, [findAllergen("Milk"), findAllergen("Eggs"), findAllergen("Wheat")]);
     await this.addItemIngredients(item4.id, [findIngredient("Beef"), findIngredient("Pasta"), findIngredient("Cheese"), findIngredient("Tomatoes")]);
     await this.assignItemToDaySlot(daySlot2.id, item4.id);
@@ -535,10 +691,9 @@ export class DatabaseStorage implements IStorage {
       chefId: chef2.id,
       title: "Fresh Fettuccine Alfredo",
       description: "Hand-cut fettuccine in a velvety parmesan cream sauce with fresh cracked pepper.",
-      price: 17.99,
-      stockQuantity: 18,
-      unitType: "per meal",
     });
+    await this.createServingOption({ menuItemId: item5.id, servingSize: 1, label: "1 serving", price: 17.99, isDefault: 1 });
+    await this.createServingOption({ menuItemId: item5.id, servingSize: 2, label: "2 servings", price: 32.99, isDefault: 0 });
     await this.addItemAllergens(item5.id, [findAllergen("Milk"), findAllergen("Eggs"), findAllergen("Wheat")]);
     await this.addItemIngredients(item5.id, [findIngredient("Pasta"), findIngredient("Butter"), findIngredient("Cream"), findIngredient("Cheese")]);
     await this.assignItemToDaySlot(daySlot2.id, item5.id);
@@ -547,10 +702,9 @@ export class DatabaseStorage implements IStorage {
       chefId: chef2.id,
       title: "Chicken Parmesan",
       description: "Crispy breaded chicken cutlet topped with marinara and melted mozzarella, served over spaghetti.",
-      price: 19.99,
-      stockQuantity: 15,
-      unitType: "per meal",
     });
+    await this.createServingOption({ menuItemId: item6.id, servingSize: 1, label: "1 serving", price: 19.99, isDefault: 1 });
+    await this.createServingOption({ menuItemId: item6.id, servingSize: 4, label: "Family size (4 servings)", price: 69.99, isDefault: 0 });
     await this.addItemAllergens(item6.id, [findAllergen("Milk"), findAllergen("Eggs"), findAllergen("Wheat")]);
     await this.addItemIngredients(item6.id, [findIngredient("Chicken"), findIngredient("Pasta"), findIngredient("Tomatoes"), findIngredient("Cheese")]);
     await this.assignItemToDaySlot(daySlot2.id, item6.id);
@@ -559,10 +713,9 @@ export class DatabaseStorage implements IStorage {
       chefId: chef2.id,
       title: "Tiramisu",
       description: "Classic Italian dessert with espresso-soaked ladyfingers and mascarpone cream.",
-      price: 9.99,
-      stockQuantity: 20,
-      unitType: "per piece",
     });
+    await this.createServingOption({ menuItemId: item7.id, servingSize: 1, label: "1 slice", price: 9.99, isDefault: 1 });
+    await this.createServingOption({ menuItemId: item7.id, servingSize: 6, label: "Whole cake (6-8 slices)", price: 49.99, isDefault: 0 });
     await this.addItemAllergens(item7.id, [findAllergen("Milk"), findAllergen("Eggs"), findAllergen("Wheat")]);
     await this.assignItemToDaySlot(daySlot2.id, item7.id);
 
@@ -571,10 +724,8 @@ export class DatabaseStorage implements IStorage {
       chefId: chef3.id,
       title: "Teriyaki Salmon Bowl",
       description: "Glazed salmon over jasmine rice with pickled vegetables, edamame, and sesame seeds.",
-      price: 21.99,
-      stockQuantity: 12,
-      unitType: "per meal",
     });
+    await this.createServingOption({ menuItemId: item8.id, servingSize: 1, label: "1 bowl", price: 21.99, isDefault: 1 });
     await this.addItemAllergens(item8.id, [findAllergen("Fish"), findAllergen("Soy"), findAllergen("Sesame")]);
     await this.addItemIngredients(item8.id, [findIngredient("Salmon"), findIngredient("Rice"), findIngredient("Carrots")]);
     await this.assignItemToDaySlot(daySlot3_1.id, item8.id);
@@ -584,10 +735,9 @@ export class DatabaseStorage implements IStorage {
       chefId: chef3.id,
       title: "Pad Thai",
       description: "Stir-fried rice noodles with shrimp, tofu, bean sprouts, and crushed peanuts in tamarind sauce.",
-      price: 16.99,
-      stockQuantity: 20,
-      unitType: "per meal",
     });
+    await this.createServingOption({ menuItemId: item9.id, servingSize: 1, label: "1 serving", price: 16.99, isDefault: 1 });
+    await this.createServingOption({ menuItemId: item9.id, servingSize: 2, label: "2 servings", price: 30.99, isDefault: 0 });
     await this.addItemAllergens(item9.id, [findAllergen("Shellfish"), findAllergen("Peanuts"), findAllergen("Soy"), findAllergen("Eggs")]);
     await this.addItemIngredients(item9.id, [findIngredient("Shrimp"), findIngredient("Tofu"), findIngredient("Rice")]);
     await this.assignItemToDaySlot(daySlot3_1.id, item9.id);
@@ -596,10 +746,9 @@ export class DatabaseStorage implements IStorage {
       chefId: chef3.id,
       title: "Thai Green Curry",
       description: "Aromatic coconut curry with vegetables and your choice of chicken or tofu. Served with jasmine rice.",
-      price: 17.99,
-      stockQuantity: 18,
-      unitType: "per meal",
     });
+    await this.createServingOption({ menuItemId: item10.id, servingSize: 1, label: "1 serving", price: 17.99, isDefault: 1 });
+    await this.createServingOption({ menuItemId: item10.id, servingSize: 4, label: "Family size (4 servings)", price: 59.99, isDefault: 0 });
     await this.addItemAllergens(item10.id, [findAllergen("Soy")]);
     await this.addItemIngredients(item10.id, [findIngredient("Chicken"), findIngredient("Coconut Milk"), findIngredient("Rice"), findIngredient("Broccoli")]);
     await this.assignItemToDaySlot(daySlot3_1.id, item10.id);
@@ -609,10 +758,9 @@ export class DatabaseStorage implements IStorage {
       chefId: chef3.id,
       title: "Vegetable Spring Rolls",
       description: "Crispy fried spring rolls filled with cabbage, carrots, and glass noodles. Served with sweet chili sauce.",
-      price: 8.99,
-      stockQuantity: 30,
-      unitType: "per piece",
     });
+    await this.createServingOption({ menuItemId: item11.id, servingSize: 4, label: "4 pieces", price: 8.99, isDefault: 1 });
+    await this.createServingOption({ menuItemId: item11.id, servingSize: 8, label: "8 pieces", price: 15.99, isDefault: 0 });
     await this.addItemAllergens(item11.id, [findAllergen("Wheat"), findAllergen("Soy")]);
     await this.addItemIngredients(item11.id, [findIngredient("Carrots")]);
     await this.assignItemToDaySlot(daySlot3_2.id, item11.id);
@@ -621,14 +769,24 @@ export class DatabaseStorage implements IStorage {
       chefId: chef3.id,
       title: "Miso Glazed Tofu Bowl",
       description: "Crispy tofu with miso glaze, quinoa, roasted vegetables, and ginger dressing. Vegan and gluten-free.",
-      price: 15.99,
-      stockQuantity: 15,
-      unitType: "per meal",
     });
+    await this.createServingOption({ menuItemId: item12.id, servingSize: 1, label: "1 bowl", price: 15.99, isDefault: 1 });
     await this.addItemAllergens(item12.id, [findAllergen("Soy")]);
     await this.addItemIngredients(item12.id, [findIngredient("Tofu"), findIngredient("Quinoa"), findIngredient("Broccoli"), findIngredient("Carrots")]);
     await this.assignItemToDaySlot(daySlot3_1.id, item12.id);
     await this.assignItemToDaySlot(daySlot3_2.id, item12.id);
+
+    // Add ingredient-allergen mappings for auto-selection
+    await this.addIngredientAllergen(findIngredient("Cheese"), findAllergen("Milk"));
+    await this.addIngredientAllergen(findIngredient("Butter"), findAllergen("Milk"));
+    await this.addIngredientAllergen(findIngredient("Cream"), findAllergen("Milk"));
+    await this.addIngredientAllergen(findIngredient("Pasta"), findAllergen("Wheat"));
+    await this.addIngredientAllergen(findIngredient("Pasta"), findAllergen("Gluten"));
+    await this.addIngredientAllergen(findIngredient("Bread"), findAllergen("Wheat"));
+    await this.addIngredientAllergen(findIngredient("Bread"), findAllergen("Gluten"));
+    await this.addIngredientAllergen(findIngredient("Salmon"), findAllergen("Fish"));
+    await this.addIngredientAllergen(findIngredient("Shrimp"), findAllergen("Shellfish"));
+    await this.addIngredientAllergen(findIngredient("Tofu"), findAllergen("Soy"));
 
     console.log("Database seeded successfully!");
   }

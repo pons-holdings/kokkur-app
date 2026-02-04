@@ -386,15 +386,25 @@ export default function Home() {
             ) : searchResults ? (
               <div className="space-y-6">
                 <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
-                  {searchResults.slice(0, 9).map((result, index) => (
+                  {searchResults.slice(0, 9).map((result, index) => {
+                    const coverPhoto = result.item.coverPhoto || (result.item.photos?.[0]?.imageUrl);
+                    const servingOptions = result.item.servingOptions || [];
+                    const prices = servingOptions.map((o: any) => o.price);
+                    const minPrice = prices.length > 0 ? Math.min(...prices) : 0;
+                    const maxPrice = prices.length > 0 ? Math.max(...prices) : 0;
+                    const priceDisplay = minPrice === maxPrice || prices.length <= 1
+                      ? `$${minPrice.toFixed(2)}`
+                      : `$${minPrice.toFixed(2)} - $${maxPrice.toFixed(2)}`;
+                    
+                    return (
                     <Link key={`${result.chef.id}-${result.item.id}-${index}`} href={`/chef/${result.chef.slug}`}>
                       <Card className="hover-elevate cursor-pointer transition-all duration-200" data-testid={`card-search-result-${result.item.id}`}>
                         <CardContent className="p-4">
                           <div className="flex gap-3">
                             <div className="flex-shrink-0 w-16 h-16 rounded-md bg-gradient-to-br from-primary/20 to-accent/30 flex items-center justify-center overflow-hidden">
-                              {result.item.imageUrl ? (
+                              {coverPhoto ? (
                                 <img
-                                  src={result.item.imageUrl}
+                                  src={coverPhoto}
                                   alt={result.item.title}
                                   className="w-full h-full object-cover"
                                   data-testid={`image-search-result-${result.item.id}`}
@@ -410,7 +420,7 @@ export default function Home() {
                               </p>
                               <div className="flex items-center justify-between gap-2 mt-2">
                                 <span className="text-sm font-semibold">
-                                  ${Number(result.item.price).toFixed(2)}
+                                  {priceDisplay}
                                 </span>
                                 {result.chef.distance !== undefined && (
                                   <span className="text-xs text-muted-foreground">
@@ -423,7 +433,8 @@ export default function Home() {
                         </CardContent>
                       </Card>
                     </Link>
-                  ))}
+                    );
+                  })}
                 </div>
                 
                 {searchResults.length > 9 && (

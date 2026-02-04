@@ -1,9 +1,10 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { MenuItem, ChefProfile } from "@shared/schema";
+import type { MenuItemWithDetails, ChefProfile, ServingOption } from "@shared/schema";
 
 export interface CartItem {
-  menuItem: MenuItem;
+  menuItem: MenuItemWithDetails;
+  servingOption: ServingOption;
   quantity: number;
 }
 
@@ -11,13 +12,20 @@ export interface CartState {
   items: CartItem[];
   chefId: number | null;
   chef: ChefProfile | null;
-  addItem: (item: MenuItem, chef: ChefProfile) => boolean;
+  addItem: (item: MenuItemWithDetails, chef: ChefProfile, servingOption?: ServingOption) => boolean;
   removeItem: (menuItemId: number) => void;
   updateQuantity: (menuItemId: number, quantity: number) => void;
   clearCart: () => void;
   getTotal: () => number;
   getItemCount: () => number;
   wouldRequireClear: (chefId: number) => boolean;
+}
+
+function getDefaultServingOption(item: MenuItemWithDetails): ServingOption {
+  if (item.servingOptions && item.servingOptions.length > 0) {
+    return item.servingOptions.find(o => o.isDefault === 1) || item.servingOptions[0];
+  }
+  return { id: 0, menuItemId: item.id, servingSize: 1, label: "1 serving", price: 0, isDefault: 1 };
 }
 
 export const useCartStore = create<CartState>()(
@@ -27,26 +35,27 @@ export const useCartStore = create<CartState>()(
       chefId: null,
       chef: null,
       
-      addItem: (item: MenuItem, chef: ChefProfile) => {
+      addItem: (item: MenuItemWithDetails, chef: ChefProfile, servingOption?: ServingOption) => {
         const state = get();
         
         if (state.chefId && state.chefId !== chef.id) {
           return false;
         }
         
+        const option = servingOption || getDefaultServingOption(item);
         const existingItem = state.items.find(i => i.menuItem.id === item.id);
         
         if (existingItem) {
           set({
             items: state.items.map(i => 
               i.menuItem.id === item.id 
-                ? { ...i, quantity: Math.min(i.quantity + 1, item.stockQuantity) }
+                ? { ...i, quantity: i.quantity + 1 }
                 : i
             ),
           });
         } else {
           set({
-            items: [...state.items, { menuItem: item, quantity: 1 }],
+            items: [...state.items, { menuItem: item, servingOption: option, quantity: 1 }],
             chefId: chef.id,
             chef: chef,
           });
@@ -77,7 +86,7 @@ export const useCartStore = create<CartState>()(
         set({
           items: state.items.map(i =>
             i.menuItem.id === menuItemId
-              ? { ...i, quantity: Math.min(quantity, i.menuItem.stockQuantity) }
+              ? { ...i, quantity }
               : i
           ),
         });
@@ -88,7 +97,7 @@ export const useCartStore = create<CartState>()(
       },
       
       getTotal: () => {
-        return get().items.reduce((sum, item) => sum + (item.menuItem.price * item.quantity), 0);
+        return get().items.reduce((sum, item) => sum + (item.servingOption.price * item.quantity), 0);
       },
       
       getItemCount: () => {

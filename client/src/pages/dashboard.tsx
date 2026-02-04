@@ -68,20 +68,28 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { Header } from "@/components/header";
+import { IngredientTypeahead } from "@/components/ingredient-typeahead";
+import { ServingOptionsEditor, type ServingOptionInput } from "@/components/serving-options-editor";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { ChefProfileWithDaySlots, Allergen, Ingredient, OrderWithItems, MenuItem } from "@shared/schema";
+import type { ChefProfileWithDaySlots, Allergen, Ingredient, OrderWithItems, MenuItem, MenuItemWithDetails, ServingOption } from "@shared/schema";
+
+const servingOptionSchema = z.object({
+  id: z.number().optional(),
+  servingSize: z.number().min(1),
+  label: z.string().min(1),
+  price: z.number().min(0.01, "Price must be greater than 0"),
+  isDefault: z.boolean(),
+});
 
 const menuItemSchema = z.object({
   chefId: z.number(),
   title: z.string().min(2, "Title must be at least 2 characters"),
   description: z.string().optional(),
-  price: z.number().min(0.01, "Price must be greater than 0"),
-  stockQuantity: z.number().min(1, "Stock must be at least 1"),
-  unitType: z.string().min(1, "Unit type is required"),
   imageUrl: z.string().optional(),
   allergenIds: z.array(z.number()).default([]),
   ingredientIds: z.array(z.number()).default([]),
+  servingOptions: z.array(servingOptionSchema).min(1, "At least one serving option is required"),
 });
 
 type MenuItemForm = z.infer<typeof menuItemSchema>;
@@ -102,10 +110,6 @@ interface DaySlot {
   items?: MenuItemWithDetails[];
 }
 
-interface MenuItemWithDetails extends MenuItem {
-  allergens?: Allergen[];
-  ingredients?: Ingredient[];
-}
 
 export default function Dashboard() {
   const [selectedChefId, setSelectedChefId] = useState<number | null>(null);
@@ -163,18 +167,20 @@ export default function Dashboard() {
     return acc;
   }, [] as { menuItemId: number; itemTitle: string; totalQuantity: number; orderCount: number }[]);
 
+  const defaultServingOptions: ServingOptionInput[] = [
+    { servingSize: 1, label: "1 serving", price: 0, isDefault: true }
+  ];
+
   const itemForm = useForm<MenuItemForm>({
     resolver: zodResolver(menuItemSchema),
     defaultValues: {
       chefId: selectedChef?.id || 0,
       title: "",
       description: "",
-      price: 0,
-      stockQuantity: 10,
-      unitType: "per meal",
       imageUrl: "",
       allergenIds: [],
       ingredientIds: [],
+      servingOptions: defaultServingOptions,
     },
   });
 
@@ -195,7 +201,7 @@ export default function Dashboard() {
       queryClient.invalidateQueries({ queryKey: ["/api/menu-items/chef", selectedChef?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/chefs"] });
       setAddItemDialogOpen(false);
-      itemForm.reset({ chefId: selectedChef?.id || 0, title: "", description: "", price: 0, stockQuantity: 10, unitType: "per meal", imageUrl: "", allergenIds: [], ingredientIds: [] });
+      itemForm.reset({ chefId: selectedChef?.id || 0, title: "", description: "", imageUrl: "", allergenIds: [], ingredientIds: [], servingOptions: defaultServingOptions });
     },
     onError: (error: Error) => {
       toast({ title: "Error creating item", description: error.message, variant: "destructive" });
@@ -319,16 +325,21 @@ export default function Dashboard() {
 
   const handleEditItem = (item: MenuItemWithDetails) => {
     setEditingItem(item);
+    const mappedServingOptions: ServingOptionInput[] = item.servingOptions?.map(o => ({
+      id: o.id,
+      servingSize: o.servingSize,
+      label: o.label,
+      price: o.price,
+      isDefault: o.isDefault === 1,
+    })) || defaultServingOptions;
     itemForm.reset({
       chefId: selectedChef?.id || 0,
       title: item.title,
       description: item.description || "",
-      price: Number(item.price),
-      stockQuantity: item.stockQuantity,
-      unitType: item.unitType,
-      imageUrl: item.imageUrl || "",
+      imageUrl: item.coverPhoto || "",
       allergenIds: item.allergens?.map(a => a.id) || [],
       ingredientIds: item.ingredients?.map(i => i.id) || [],
+      servingOptions: mappedServingOptions,
     });
     setEditItemDialogOpen(true);
   };
@@ -498,51 +509,19 @@ export default function Dashboard() {
                   
                   <Form {...itemForm}>
                     <form onSubmit={itemForm.handleSubmit(onSubmitItem)} className="space-y-6">
-                      <div className="grid sm:grid-cols-2 gap-4">
-                        <FormField
-                          control={itemForm.control}
-                          name="title"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Item Title</FormLabel>
-                              <FormControl>
-                                <Input placeholder="e.g., Homemade Lasagna" {...field} data-testid="input-item-title" />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-
-                        <div className="grid grid-cols-2 gap-4">
-                          <FormField
-                            control={itemForm.control}
-                            name="price"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Price ($)</FormLabel>
-                                <FormControl>
-                                  <Input type="number" step="0.01" min="0" {...field} onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)} data-testid="input-price" />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <FormField
-                            control={itemForm.control}
-                            name="stockQuantity"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Stock</FormLabel>
-                                <FormControl>
-                                  <Input type="number" min="1" {...field} onChange={(e) => field.onChange(parseInt(e.target.value) || 1)} data-testid="input-stock" />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                        </div>
-                      </div>
+                      <FormField
+                        control={itemForm.control}
+                        name="title"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Item Title</FormLabel>
+                            <FormControl>
+                              <Input placeholder="e.g., Homemade Lasagna" {...field} data-testid="input-item-title" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
 
                       <FormField
                         control={itemForm.control}
@@ -560,24 +539,15 @@ export default function Dashboard() {
 
                       <FormField
                         control={itemForm.control}
-                        name="unitType"
+                        name="servingOptions"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Unit Type</FormLabel>
-                            <Select value={field.value} onValueChange={field.onChange}>
-                              <FormControl>
-                                <SelectTrigger data-testid="select-unit">
-                                  <SelectValue placeholder="Select unit type" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                <SelectItem value="per meal">Per Meal</SelectItem>
-                                <SelectItem value="per tray">Per Tray</SelectItem>
-                                <SelectItem value="per dozen">Per Dozen</SelectItem>
-                                <SelectItem value="per piece">Per Piece</SelectItem>
-                                <SelectItem value="per pound">Per Pound</SelectItem>
-                              </SelectContent>
-                            </Select>
+                            <FormControl>
+                              <ServingOptionsEditor
+                                options={field.value || []}
+                                onChange={field.onChange}
+                              />
+                            </FormControl>
                             <FormMessage />
                           </FormItem>
                         )}
@@ -702,48 +672,24 @@ export default function Dashboard() {
                         />
                       )}
 
-                      {ingredients && ingredients.length > 0 && (
-                        <FormField
-                          control={itemForm.control}
-                          name="ingredientIds"
-                          render={() => (
-                            <FormItem>
-                              <div className="mb-2">
-                                <FormLabel>Ingredients</FormLabel>
-                                <FormDescription>Select all main ingredients</FormDescription>
-                              </div>
-                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-40 overflow-y-auto p-1">
-                                {ingredients.map((ingredient) => (
-                                  <FormField
-                                    key={ingredient.id}
-                                    control={itemForm.control}
-                                    name="ingredientIds"
-                                    render={({ field }) => (
-                                      <FormItem className="flex items-center space-x-2 space-y-0">
-                                        <FormControl>
-                                          <Checkbox
-                                            checked={field.value?.includes(ingredient.id)}
-                                            onCheckedChange={(checked) => {
-                                              if (checked) {
-                                                field.onChange([...field.value, ingredient.id]);
-                                              } else {
-                                                field.onChange(field.value?.filter((id) => id !== ingredient.id));
-                                              }
-                                            }}
-                                            data-testid={`checkbox-ingredient-${ingredient.id}`}
-                                          />
-                                        </FormControl>
-                                        <FormLabel className="text-sm font-normal cursor-pointer">{ingredient.name}</FormLabel>
-                                      </FormItem>
-                                    )}
-                                  />
-                                ))}
-                              </div>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      )}
+                      <FormField
+                        control={itemForm.control}
+                        name="ingredientIds"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Ingredients</FormLabel>
+                            <FormDescription>Search and add ingredients - you can also create new ones</FormDescription>
+                            <FormControl>
+                              <IngredientTypeahead
+                                selectedIds={field.value || []}
+                                onChange={field.onChange}
+                                placeholder="Search or add ingredients..."
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
 
                       <div className="flex justify-end gap-3 pt-4">
                         <Button type="button" variant="outline" onClick={() => setAddItemDialogOpen(false)}>Cancel</Button>
@@ -793,14 +739,21 @@ export default function Dashboard() {
                       )}
                     </CardHeader>
                     <CardContent className="space-y-3">
-                      {item.imageUrl && (
+                      {(item.coverPhoto || item.photos?.[0]?.imageUrl) && (
                         <div className="aspect-video rounded-md overflow-hidden bg-muted">
-                          <img src={item.imageUrl} alt={item.title} className="w-full h-full object-cover" />
+                          <img src={item.coverPhoto || item.photos?.[0]?.imageUrl} alt={item.title} className="w-full h-full object-cover" />
                         </div>
                       )}
                       <div className="flex items-center justify-between">
-                        <span className="font-semibold text-lg">${Number(item.price).toFixed(2)}</span>
-                        <span className="text-sm text-muted-foreground">{item.stockQuantity} {item.unitType}</span>
+                        {(() => {
+                          const opts = item.servingOptions || [];
+                          if (opts.length === 0) return <span className="font-semibold text-lg text-muted-foreground">No pricing</span>;
+                          const prices = opts.map(o => o.price);
+                          const min = Math.min(...prices);
+                          const max = Math.max(...prices);
+                          return <span className="font-semibold text-lg">{min === max ? `$${min.toFixed(2)}` : `$${min.toFixed(2)} - $${max.toFixed(2)}`}</span>;
+                        })()}
+                        <span className="text-sm text-muted-foreground">{item.servingOptions?.length || 0} serving option(s)</span>
                       </div>
                       {item.allergens && item.allergens.length > 0 && (
                         <div className="flex flex-wrap gap-1">
@@ -968,7 +921,14 @@ export default function Dashboard() {
                                           />
                                           <div className="min-w-0 flex-1">
                                             <p className="font-medium truncate">{item.title}</p>
-                                            <p className="text-sm text-muted-foreground">${Number(item.price).toFixed(2)}</p>
+                                            <p className="text-sm text-muted-foreground">
+                                              {(() => {
+                                                const opts = item.servingOptions || [];
+                                                if (opts.length === 0) return "No price set";
+                                                const defaultOpt = opts.find(o => o.isDefault === 1) || opts[0];
+                                                return `$${defaultOpt.price.toFixed(2)}`;
+                                              })()}
+                                            </p>
                                           </div>
                                         </div>
                                       );
@@ -1103,31 +1063,14 @@ export default function Dashboard() {
           
           <Form {...itemForm}>
             <form onSubmit={itemForm.handleSubmit((data) => editingItem && updateMenuItemMutation.mutate({ id: editingItem.id, data }))} className="space-y-6">
-              <div className="grid sm:grid-cols-2 gap-4">
-                <FormField control={itemForm.control} name="title" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Item Title</FormLabel>
-                    <FormControl><Input {...field} data-testid="input-edit-item-title" /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField control={itemForm.control} name="price" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Price ($)</FormLabel>
-                      <FormControl><Input type="number" step="0.01" min="0" {...field} onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)} /></FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
-                  <FormField control={itemForm.control} name="stockQuantity" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Stock</FormLabel>
-                      <FormControl><Input type="number" min="1" {...field} onChange={(e) => field.onChange(parseInt(e.target.value) || 1)} /></FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
-                </div>
-              </div>
+              <FormField control={itemForm.control} name="title" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Item Title</FormLabel>
+                  <FormControl><Input {...field} data-testid="input-edit-item-title" /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+
               <FormField control={itemForm.control} name="description" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Description</FormLabel>
@@ -1135,22 +1078,22 @@ export default function Dashboard() {
                   <FormMessage />
                 </FormItem>
               )} />
-              <FormField control={itemForm.control} name="unitType" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Unit Type</FormLabel>
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                    <SelectContent>
-                      <SelectItem value="per meal">Per Meal</SelectItem>
-                      <SelectItem value="per tray">Per Tray</SelectItem>
-                      <SelectItem value="per dozen">Per Dozen</SelectItem>
-                      <SelectItem value="per piece">Per Piece</SelectItem>
-                      <SelectItem value="per pound">Per Pound</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )} />
+
+              <FormField
+                control={itemForm.control}
+                name="servingOptions"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormControl>
+                      <ServingOptionsEditor
+                        options={field.value || []}
+                        onChange={field.onChange}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
               <FormField
                 control={itemForm.control}
@@ -1271,48 +1214,24 @@ export default function Dashboard() {
                 />
               )}
 
-              {ingredients && ingredients.length > 0 && (
-                <FormField
-                  control={itemForm.control}
-                  name="ingredientIds"
-                  render={() => (
-                    <FormItem>
-                      <div className="mb-2">
-                        <FormLabel>Ingredients</FormLabel>
-                        <FormDescription>Select all main ingredients</FormDescription>
-                      </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-40 overflow-y-auto p-1">
-                        {ingredients.map((ingredient) => (
-                          <FormField
-                            key={ingredient.id}
-                            control={itemForm.control}
-                            name="ingredientIds"
-                            render={({ field }) => (
-                              <FormItem className="flex items-center space-x-2 space-y-0">
-                                <FormControl>
-                                  <Checkbox
-                                    checked={field.value?.includes(ingredient.id)}
-                                    onCheckedChange={(checked) => {
-                                      if (checked) {
-                                        field.onChange([...field.value, ingredient.id]);
-                                      } else {
-                                        field.onChange(field.value?.filter((id) => id !== ingredient.id));
-                                      }
-                                    }}
-                                    data-testid={`checkbox-edit-ingredient-${ingredient.id}`}
-                                  />
-                                </FormControl>
-                                <FormLabel className="text-sm font-normal cursor-pointer">{ingredient.name}</FormLabel>
-                              </FormItem>
-                            )}
-                          />
-                        ))}
-                      </div>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              )}
+              <FormField
+                control={itemForm.control}
+                name="ingredientIds"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Ingredients</FormLabel>
+                    <FormDescription>Search and add ingredients - you can also create new ones</FormDescription>
+                    <FormControl>
+                      <IngredientTypeahead
+                        selectedIds={field.value || []}
+                        onChange={field.onChange}
+                        placeholder="Search or add ingredients..."
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
               <div className="flex justify-end gap-3 pt-4">
                 <Button type="button" variant="outline" onClick={() => setEditItemDialogOpen(false)}>Cancel</Button>

@@ -128,8 +128,9 @@ export default function Checkout() {
         items: items.map((item) => ({
           menuItemId: item.menuItem.id,
           quantity: item.quantity,
-          priceAtOrder: item.menuItem.price,
+          priceAtOrder: item.servingOption.price,
           itemTitle: item.menuItem.title,
+          servingOptionLabel: item.servingOption.label,
         })),
       };
 

@@ -113,12 +113,14 @@ export default function Cart() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {items.map((cartItem) => (
+                {items.map((cartItem) => {
+                  const coverPhoto = cartItem.menuItem.coverPhoto || (cartItem.menuItem.photos && cartItem.menuItem.photos.length > 0 ? cartItem.menuItem.photos[0].imageUrl : undefined);
+                  return (
                   <div key={cartItem.menuItem.id} className="flex gap-4">
                     <div className="h-20 w-20 rounded-md bg-gradient-to-br from-primary/10 via-accent/10 to-secondary/20 flex items-center justify-center shrink-0 overflow-hidden">
-                      {cartItem.menuItem.imageUrl ? (
+                      {coverPhoto ? (
                         <img
-                          src={cartItem.menuItem.imageUrl}
+                          src={coverPhoto}
                           alt={cartItem.menuItem.title}
                           className="w-full h-full object-cover"
                           data-testid={`image-cart-item-${cartItem.menuItem.id}`}
@@ -133,11 +135,11 @@ export default function Cart() {
                         <div className="flex-1 min-w-0">
                           <h4 className="font-medium truncate">{cartItem.menuItem.title}</h4>
                           <p className="text-sm text-muted-foreground">
-                            ${cartItem.menuItem.price.toFixed(2)} / {cartItem.menuItem.unitType}
+                            ${cartItem.servingOption.price.toFixed(2)} / {cartItem.servingOption.label}
                           </p>
                         </div>
                         <p className="font-semibold shrink-0">
-                          ${(cartItem.menuItem.price * cartItem.quantity).toFixed(2)}
+                          ${(cartItem.servingOption.price * cartItem.quantity).toFixed(2)}
                         </p>
                       </div>
                       
@@ -158,7 +160,6 @@ export default function Cart() {
                             size="icon"
                             className="h-8 w-8"
                             onClick={() => updateQuantity(cartItem.menuItem.id, cartItem.quantity + 1)}
-                            disabled={cartItem.quantity >= cartItem.menuItem.stockQuantity}
                             data-testid={`button-increase-${cartItem.menuItem.id}`}
                           >
                             <Plus className="h-4 w-4" />
@@ -175,15 +176,10 @@ export default function Cart() {
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
-
-                      {cartItem.quantity >= cartItem.menuItem.stockQuantity && (
-                        <Badge variant="secondary" className="mt-2 text-xs">
-                          Max quantity reached
-                        </Badge>
-                      )}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </CardContent>
             </Card>
           </div>

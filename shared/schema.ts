@@ -50,19 +50,35 @@ export const menuItems = pgTable("menu_items", {
   chefId: integer("chef_id").notNull().references(() => chefProfiles.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   description: text("description"),
-  price: real("price").notNull(),
-  imageUrl: text("image_url"),
-  stockQuantity: integer("stock_quantity").notNull().default(0),
-  unitType: text("unit_type").notNull().default("per meal"),
 });
 
-// Menu Item Assignments (many-to-many: items assigned to specific day slots)
+// Serving Options (multiple price tiers per menu item, e.g., 1 serving $9.99, 4 servings $29.99)
+export const servingOptions = pgTable("serving_options", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  menuItemId: integer("menu_item_id").notNull().references(() => menuItems.id, { onDelete: "cascade" }),
+  servingSize: integer("serving_size").notNull().default(1),
+  label: text("label").notNull(), // e.g., "1 serving", "Family Pack (4 servings)"
+  price: real("price").notNull(),
+  isDefault: integer("is_default").notNull().default(0), // Boolean as integer
+});
+
+// Item Photos (multiple photos per menu item with cover selection)
+export const itemPhotos = pgTable("item_photos", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  menuItemId: integer("menu_item_id").notNull().references(() => menuItems.id, { onDelete: "cascade" }),
+  imageUrl: text("image_url").notNull(),
+  isCover: integer("is_cover").notNull().default(0), // Boolean as integer
+  sortOrder: integer("sort_order").notNull().default(0),
+});
+
+// Menu Item Assignments (many-to-many: items assigned to specific day slots with per-day stock)
 export const menuItemAssignments = pgTable("menu_item_assignments", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   daySlotId: integer("day_slot_id").notNull().references(() => menuDaySlots.id, { onDelete: "cascade" }),
   menuItemId: integer("menu_item_id").notNull().references(() => menuItems.id, { onDelete: "cascade" }),
-}, (table) => ({
-  pk: primaryKey({ columns: [table.daySlotId, table.menuItemId] }),
-}));
+  stockQuantity: integer("stock_quantity"), // null means unlimited
+  stockLimited: integer("stock_limited").notNull().default(0), // Boolean as integer
+});
 
 // Ingredients
 export const ingredients = pgTable("ingredients", {
@@ -70,12 +86,21 @@ export const ingredients = pgTable("ingredients", {
   name: text("name").notNull().unique(),
 });
 
-// Allergens
+// Allergens (FDA Big 9 + additional common allergens)
 export const allergens = pgTable("allergens", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   name: text("name").notNull().unique(),
   icon: text("icon"),
+  description: text("description"), // Additional info about the allergen
 });
+
+// Ingredient-Allergen mappings (which ingredients contain which allergens for auto-selection)
+export const ingredientAllergens = pgTable("ingredient_allergens", {
+  ingredientId: integer("ingredient_id").notNull().references(() => ingredients.id, { onDelete: "cascade" }),
+  allergenId: integer("allergen_id").notNull().references(() => allergens.id, { onDelete: "cascade" }),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.ingredientId, table.allergenId] }),
+}));
 
 // Item Ingredients (many-to-many)
 export const itemIngredients = pgTable("item_ingredients", {
@@ -162,6 +187,22 @@ export const menuItemsRelations = relations(menuItems, ({ one, many }) => ({
   ingredients: many(itemIngredients),
   allergens: many(itemAllergens),
   orderItems: many(orderItems),
+  servingOptions: many(servingOptions),
+  photos: many(itemPhotos),
+}));
+
+export const servingOptionsRelations = relations(servingOptions, ({ one }) => ({
+  menuItem: one(menuItems, {
+    fields: [servingOptions.menuItemId],
+    references: [menuItems.id],
+  }),
+}));
+
+export const itemPhotosRelations = relations(itemPhotos, ({ one }) => ({
+  menuItem: one(menuItems, {
+    fields: [itemPhotos.menuItemId],
+    references: [menuItems.id],
+  }),
 }));
 
 export const menuItemAssignmentsRelations = relations(menuItemAssignments, ({ one }) => ({
@@ -177,10 +218,23 @@ export const menuItemAssignmentsRelations = relations(menuItemAssignments, ({ on
 
 export const ingredientsRelations = relations(ingredients, ({ many }) => ({
   menuItems: many(itemIngredients),
+  allergens: many(ingredientAllergens),
 }));
 
 export const allergensRelations = relations(allergens, ({ many }) => ({
   menuItems: many(itemAllergens),
+  ingredients: many(ingredientAllergens),
+}));
+
+export const ingredientAllergensRelations = relations(ingredientAllergens, ({ one }) => ({
+  ingredient: one(ingredients, {
+    fields: [ingredientAllergens.ingredientId],
+    references: [ingredients.id],
+  }),
+  allergen: one(allergens, {
+    fields: [ingredientAllergens.allergenId],
+    references: [allergens.id],
+  }),
 }));
 
 export const itemIngredientsRelations = relations(itemIngredients, ({ one }) => ({
@@ -236,9 +290,12 @@ export const insertChefProfileSchema = createInsertSchema(chefProfiles).omit({ i
 export const insertMenuSchema = createInsertSchema(menus).omit({ id: true });
 export const insertMenuDaySlotSchema = createInsertSchema(menuDaySlots).omit({ id: true });
 export const insertMenuItemSchema = createInsertSchema(menuItems).omit({ id: true });
-export const insertMenuItemAssignmentSchema = createInsertSchema(menuItemAssignments);
+export const insertMenuItemAssignmentSchema = createInsertSchema(menuItemAssignments).omit({ id: true });
+export const insertServingOptionSchema = createInsertSchema(servingOptions).omit({ id: true });
+export const insertItemPhotoSchema = createInsertSchema(itemPhotos).omit({ id: true });
 export const insertIngredientSchema = createInsertSchema(ingredients).omit({ id: true });
 export const insertAllergenSchema = createInsertSchema(allergens).omit({ id: true });
+export const insertIngredientAllergenSchema = createInsertSchema(ingredientAllergens);
 export const insertOrderSchema = createInsertSchema(orders).omit({ id: true, createdAt: true });
 export const insertOrderItemSchema = createInsertSchema(orderItems).omit({ id: true });
 export const insertItemIngredientSchema = createInsertSchema(itemIngredients);
@@ -254,8 +311,14 @@ export type MenuDaySlot = typeof menuDaySlots.$inferSelect;
 export type InsertMenuDaySlot = z.infer<typeof insertMenuDaySlotSchema>;
 export type MenuItem = typeof menuItems.$inferSelect;
 export type InsertMenuItem = z.infer<typeof insertMenuItemSchema>;
+export type ServingOption = typeof servingOptions.$inferSelect;
+export type InsertServingOption = z.infer<typeof insertServingOptionSchema>;
+export type ItemPhoto = typeof itemPhotos.$inferSelect;
+export type InsertItemPhoto = z.infer<typeof insertItemPhotoSchema>;
 export type Ingredient = typeof ingredients.$inferSelect;
 export type InsertIngredient = z.infer<typeof insertIngredientSchema>;
+export type IngredientAllergen = typeof ingredientAllergens.$inferSelect;
+export type InsertIngredientAllergen = z.infer<typeof insertIngredientAllergenSchema>;
 export type Allergen = typeof allergens.$inferSelect;
 export type InsertAllergen = z.infer<typeof insertAllergenSchema>;
 export type Order = typeof orders.$inferSelect;
@@ -272,13 +335,25 @@ export type UserFavorite = typeof userFavorites.$inferSelect;
 export type InsertUserFavorite = z.infer<typeof insertUserFavoriteSchema>;
 
 // Extended types for API responses
+export type IngredientWithAllergens = Ingredient & {
+  allergens: Allergen[];
+};
+
 export type MenuItemWithDetails = MenuItem & {
   ingredients: Ingredient[];
   allergens: Allergen[];
+  servingOptions: ServingOption[];
+  photos: ItemPhoto[];
+  coverPhoto?: string; // convenience field for the cover photo URL
+};
+
+export type DaySlotItemAssignment = MenuItemAssignment & {
+  menuItem: MenuItemWithDetails;
 };
 
 export type DaySlotWithItems = MenuDaySlot & {
   items: MenuItemWithDetails[];
+  assignments?: DaySlotItemAssignment[];
 };
 
 export type MenuWithDaySlots = Menu & {

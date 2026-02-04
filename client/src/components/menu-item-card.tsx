@@ -5,11 +5,10 @@ import {
   Plus, 
   Minus, 
   AlertTriangle, 
-  Package,
   UtensilsCrossed
 } from "lucide-react";
 import { useCartStore } from "@/lib/cart-store";
-import type { MenuItemWithDetails, ChefProfile } from "@shared/schema";
+import type { MenuItemWithDetails, ChefProfile, ServingOption } from "@shared/schema";
 
 interface MenuItemCardProps {
   item: MenuItemWithDetails;
@@ -17,13 +16,40 @@ interface MenuItemCardProps {
   onAddToCart?: () => void;
 }
 
+function getPriceDisplay(servingOptions: ServingOption[] | undefined) {
+  if (!servingOptions || servingOptions.length === 0) {
+    return { display: "Price TBD", defaultOption: undefined };
+  }
+  
+  const defaultOption = servingOptions.find(o => o.isDefault === 1) || servingOptions[0];
+  
+  if (servingOptions.length === 1) {
+    return { 
+      display: `$${defaultOption.price.toFixed(2)}`, 
+      label: defaultOption.label,
+      defaultOption 
+    };
+  }
+  
+  const prices = servingOptions.map(o => o.price);
+  const minPrice = Math.min(...prices);
+  const maxPrice = Math.max(...prices);
+  
+  return { 
+    display: `$${minPrice.toFixed(2)} - $${maxPrice.toFixed(2)}`,
+    label: defaultOption.label,
+    defaultOption 
+  };
+}
+
 export function MenuItemCard({ item, chef, onAddToCart }: MenuItemCardProps) {
-  const { items, addItem, removeItem, updateQuantity } = useCartStore();
+  const { items, addItem, updateQuantity } = useCartStore();
   
   const cartItem = items.find((i) => i.menuItem.id === item.id);
   const quantity = cartItem?.quantity || 0;
-  const isOutOfStock = item.stockQuantity <= 0;
-  const maxReached = quantity >= item.stockQuantity;
+  const priceInfo = getPriceDisplay(item.servingOptions);
+  
+  const coverPhotoUrl = item.coverPhoto || (item.photos && item.photos.length > 0 ? item.photos[0].imageUrl : undefined);
 
   const handleAdd = () => {
     const success = addItem(item, chef);
@@ -33,9 +59,7 @@ export function MenuItemCard({ item, chef, onAddToCart }: MenuItemCardProps) {
   };
 
   const handleIncrement = () => {
-    if (!maxReached) {
-      updateQuantity(item.id, quantity + 1);
-    }
+    updateQuantity(item.id, quantity + 1);
   };
 
   const handleDecrement = () => {
@@ -46,14 +70,14 @@ export function MenuItemCard({ item, chef, onAddToCart }: MenuItemCardProps) {
 
   return (
     <Card 
-      className={`overflow-hidden transition-all ${isOutOfStock ? "opacity-60" : ""}`}
+      className="overflow-hidden transition-all"
       data-testid={`card-menu-item-${item.id}`}
     >
       <CardContent className="p-0">
         <div className="relative h-40 bg-gradient-to-br from-primary/10 via-accent/10 to-secondary/20 overflow-hidden">
-          {item.imageUrl ? (
+          {coverPhotoUrl ? (
             <img
-              src={item.imageUrl}
+              src={coverPhotoUrl}
               alt={item.title}
               className="absolute inset-0 w-full h-full object-cover"
               data-testid={`image-menu-item-${item.id}`}
@@ -62,23 +86,6 @@ export function MenuItemCard({ item, chef, onAddToCart }: MenuItemCardProps) {
             <div className="absolute inset-0 flex items-center justify-center">
               <UtensilsCrossed className="h-12 w-12 text-primary/20" />
             </div>
-          )}
-          
-          {isOutOfStock && (
-            <div className="absolute inset-0 flex items-center justify-center bg-background/70">
-              <Badge variant="secondary" className="text-sm">
-                Sold Out
-              </Badge>
-            </div>
-          )}
-          
-          {!isOutOfStock && item.stockQuantity <= 5 && (
-            <Badge 
-              variant="secondary" 
-              className="absolute top-3 right-3 bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
-            >
-              Only {item.stockQuantity} left
-            </Badge>
           )}
         </div>
 
@@ -93,8 +100,10 @@ export function MenuItemCard({ item, chef, onAddToCart }: MenuItemCardProps) {
               )}
             </div>
             <div className="text-right shrink-0">
-              <p className="font-semibold text-primary">${item.price.toFixed(2)}</p>
-              <p className="text-xs text-muted-foreground">{item.unitType}</p>
+              <p className="font-semibold text-primary">{priceInfo.display}</p>
+              {priceInfo.label && (
+                <p className="text-xs text-muted-foreground">{priceInfo.label}</p>
+              )}
             </div>
           </div>
 
@@ -120,17 +129,11 @@ export function MenuItemCard({ item, chef, onAddToCart }: MenuItemCardProps) {
             </div>
           )}
 
-          <div className="flex items-center justify-between pt-2">
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Package className="h-3.5 w-3.5" />
-              <span>{item.stockQuantity} available</span>
-            </div>
-
+          <div className="flex items-center justify-end pt-2">
             {quantity === 0 ? (
               <Button
                 size="sm"
                 onClick={handleAdd}
-                disabled={isOutOfStock}
                 data-testid={`button-add-${item.id}`}
               >
                 <Plus className="h-4 w-4 mr-1" />
@@ -153,7 +156,6 @@ export function MenuItemCard({ item, chef, onAddToCart }: MenuItemCardProps) {
                   size="icon"
                   className="h-8 w-8"
                   onClick={handleIncrement}
-                  disabled={maxReached}
                   data-testid={`button-increase-${item.id}`}
                 >
                   <Plus className="h-4 w-4" />

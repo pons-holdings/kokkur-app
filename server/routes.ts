@@ -48,11 +48,40 @@ export async function registerRoutes(
 
   app.get("/api/ingredients", async (req, res) => {
     try {
-      const ingredients = await storage.getIngredients();
+      const query = req.query.search as string;
+      const ingredients = query 
+        ? await storage.searchIngredients(query)
+        : await storage.getIngredients();
       res.json(ingredients);
     } catch (error) {
       console.error("Error fetching ingredients:", error);
       res.status(500).json({ error: "Failed to fetch ingredients" });
+    }
+  });
+
+  // Create new ingredient
+  app.post("/api/ingredients", async (req, res) => {
+    try {
+      const { name } = z.object({ name: z.string().min(1) }).parse(req.body);
+      const ingredient = await storage.createIngredient({ name });
+      res.status(201).json(ingredient);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid data", details: error.errors });
+      }
+      console.error("Error creating ingredient:", error);
+      res.status(500).json({ error: "Failed to create ingredient" });
+    }
+  });
+
+  // Get ingredients with their associated allergens
+  app.get("/api/ingredients-with-allergens", async (req, res) => {
+    try {
+      const ingredients = await storage.getIngredientsWithAllergens();
+      res.json(ingredients);
+    } catch (error) {
+      console.error("Error fetching ingredients with allergens:", error);
+      res.status(500).json({ error: "Failed to fetch ingredients with allergens" });
     }
   });
 
@@ -236,7 +265,12 @@ export async function registerRoutes(
     }
   });
 
-  // Item assignment to day slots
+  // Item assignment to day slots with per-day stock
+  const assignItemSchema = z.object({
+    stockLimited: z.boolean().default(false),
+    stockQuantity: z.number().optional(),
+  });
+
   app.post("/api/day-slots/:daySlotId/items/:itemId", async (req, res) => {
     try {
       const daySlotId = parseInt(req.params.daySlotId);
@@ -244,11 +278,54 @@ export async function registerRoutes(
       if (isNaN(daySlotId) || isNaN(itemId)) {
         return res.status(400).json({ error: "Invalid day slot or item ID" });
       }
-      await storage.assignItemToDaySlot(daySlotId, itemId);
-      res.status(201).json({ message: "Item assigned to day slot" });
+      const { stockLimited, stockQuantity } = assignItemSchema.parse(req.body || {});
+      const assignment = await storage.assignItemToDaySlot(daySlotId, itemId, stockLimited, stockQuantity);
+      res.status(201).json(assignment);
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid data", details: error.errors });
+      }
       console.error("Error assigning item to day slot:", error);
       res.status(500).json({ error: "Failed to assign item to day slot" });
+    }
+  });
+
+  // Update assignment stock info
+  app.patch("/api/day-slots/:daySlotId/items/:itemId", async (req, res) => {
+    try {
+      const daySlotId = parseInt(req.params.daySlotId);
+      const itemId = parseInt(req.params.itemId);
+      if (isNaN(daySlotId) || isNaN(itemId)) {
+        return res.status(400).json({ error: "Invalid day slot or item ID" });
+      }
+      const { stockLimited, stockQuantity } = assignItemSchema.parse(req.body);
+      await storage.updateDaySlotItemAssignment(daySlotId, itemId, stockLimited, stockQuantity);
+      res.json({ message: "Assignment updated" });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid data", details: error.errors });
+      }
+      console.error("Error updating assignment:", error);
+      res.status(500).json({ error: "Failed to update assignment" });
+    }
+  });
+
+  // Get assignment info
+  app.get("/api/day-slots/:daySlotId/items/:itemId", async (req, res) => {
+    try {
+      const daySlotId = parseInt(req.params.daySlotId);
+      const itemId = parseInt(req.params.itemId);
+      if (isNaN(daySlotId) || isNaN(itemId)) {
+        return res.status(400).json({ error: "Invalid day slot or item ID" });
+      }
+      const assignment = await storage.getAssignmentForDaySlot(daySlotId, itemId);
+      if (!assignment) {
+        return res.status(404).json({ error: "Assignment not found" });
+      }
+      res.json(assignment);
+    } catch (error) {
+      console.error("Error fetching assignment:", error);
+      res.status(500).json({ error: "Failed to fetch assignment" });
     }
   });
 
@@ -267,17 +344,22 @@ export async function registerRoutes(
     }
   });
 
+  // Serving option schema for nested creation
+  const servingOptionInputSchema = z.object({
+    servingSize: z.number().min(1),
+    label: z.string().min(1),
+    price: z.number().min(0.01),
+    isDefault: z.boolean().default(false),
+  });
+
   // Menu Items CRUD (items belong to chef, not menu)
   const createMenuItemSchema = z.object({
     chefId: z.number(),
     title: z.string().min(2),
     description: z.string().optional(),
-    price: z.number().min(0.01),
-    stockQuantity: z.number().min(1),
-    unitType: z.string().min(1),
-    imageUrl: z.string().optional(),
     allergenIds: z.array(z.number()).default([]),
     ingredientIds: z.array(z.number()).default([]),
+    servingOptions: z.array(servingOptionInputSchema).optional(),
   });
 
   app.get("/api/menu-items/chef/:chefId", async (req, res) => {
@@ -302,11 +384,20 @@ export async function registerRoutes(
         chefId: data.chefId,
         title: data.title,
         description: data.description,
-        price: data.price,
-        stockQuantity: data.stockQuantity,
-        unitType: data.unitType,
-        imageUrl: data.imageUrl,
       });
+      
+      // Create serving options
+      if (data.servingOptions && data.servingOptions.length > 0) {
+        for (const opt of data.servingOptions) {
+          await storage.createServingOption({
+            menuItemId: item.id,
+            servingSize: opt.servingSize,
+            label: opt.label,
+            price: opt.price,
+            isDefault: opt.isDefault ? 1 : 0,
+          });
+        }
+      }
       
       if (data.allergenIds.length > 0) {
         await storage.addItemAllergens(item.id, data.allergenIds);
@@ -330,12 +421,9 @@ export async function registerRoutes(
   const updateMenuItemSchema = z.object({
     title: z.string().min(2).optional(),
     description: z.string().optional().nullable(),
-    price: z.number().min(0.01).optional(),
-    stockQuantity: z.number().min(0).optional(),
-    unitType: z.string().min(1).optional(),
-    imageUrl: z.string().optional().nullable(),
     allergenIds: z.array(z.number()).optional(),
     ingredientIds: z.array(z.number()).optional(),
+    servingOptions: z.array(servingOptionInputSchema).optional(),
   });
 
   app.patch("/api/menu-items/:itemId", async (req, res) => {
@@ -346,7 +434,7 @@ export async function registerRoutes(
       }
       
       const validated = updateMenuItemSchema.parse(req.body);
-      const { allergenIds, ingredientIds, ...itemData } = validated;
+      const { allergenIds, ingredientIds, servingOptions, ...itemData } = validated;
       
       const item = await storage.updateMenuItem(itemId, itemData);
       if (!item) {
@@ -364,6 +452,20 @@ export async function registerRoutes(
         await storage.clearItemIngredients(itemId);
         if (ingredientIds.length > 0) {
           await storage.addItemIngredients(itemId, ingredientIds);
+        }
+      }
+
+      // Replace serving options if provided
+      if (servingOptions !== undefined) {
+        await storage.clearServingOptions(itemId);
+        for (const opt of servingOptions) {
+          await storage.createServingOption({
+            menuItemId: itemId,
+            servingSize: opt.servingSize,
+            label: opt.label,
+            price: opt.price,
+            isDefault: opt.isDefault ? 1 : 0,
+          });
         }
       }
       
@@ -395,6 +497,81 @@ export async function registerRoutes(
     }
   });
 
+  // Item Photos
+  const createPhotoSchema = z.object({
+    imageUrl: z.string().url(),
+    isCover: z.boolean().default(false),
+    sortOrder: z.number().default(0),
+  });
+
+  app.get("/api/menu-items/:itemId/photos", async (req, res) => {
+    try {
+      const itemId = parseInt(req.params.itemId);
+      if (isNaN(itemId)) {
+        return res.status(400).json({ error: "Invalid item ID" });
+      }
+      const photos = await storage.getPhotosByMenuItemId(itemId);
+      res.json(photos);
+    } catch (error) {
+      console.error("Error fetching photos:", error);
+      res.status(500).json({ error: "Failed to fetch photos" });
+    }
+  });
+
+  app.post("/api/menu-items/:itemId/photos", async (req, res) => {
+    try {
+      const itemId = parseInt(req.params.itemId);
+      if (isNaN(itemId)) {
+        return res.status(400).json({ error: "Invalid item ID" });
+      }
+      const data = createPhotoSchema.parse(req.body);
+      const photo = await storage.createItemPhoto({
+        menuItemId: itemId,
+        imageUrl: data.imageUrl,
+        isCover: data.isCover ? 1 : 0,
+        sortOrder: data.sortOrder,
+      });
+      res.status(201).json(photo);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid data", details: error.errors });
+      }
+      console.error("Error creating photo:", error);
+      res.status(500).json({ error: "Failed to create photo" });
+    }
+  });
+
+  app.delete("/api/photos/:photoId", async (req, res) => {
+    try {
+      const photoId = parseInt(req.params.photoId);
+      if (isNaN(photoId)) {
+        return res.status(400).json({ error: "Invalid photo ID" });
+      }
+      const deleted = await storage.deleteItemPhoto(photoId);
+      if (!deleted) {
+        return res.status(404).json({ error: "Photo not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting photo:", error);
+      res.status(500).json({ error: "Failed to delete photo" });
+    }
+  });
+
+  app.post("/api/menu-items/:itemId/photos/:photoId/set-cover", async (req, res) => {
+    try {
+      const itemId = parseInt(req.params.itemId);
+      const photoId = parseInt(req.params.photoId);
+      if (isNaN(itemId) || isNaN(photoId)) {
+        return res.status(400).json({ error: "Invalid item or photo ID" });
+      }
+      await storage.setCoverPhoto(itemId, photoId);
+      res.json({ message: "Cover photo set" });
+    } catch (error) {
+      console.error("Error setting cover photo:", error);
+      res.status(500).json({ error: "Failed to set cover photo" });
+    }
+  });
 
   const createOrderSchema = z.object({
     chefId: z.number(),
@@ -443,9 +620,8 @@ export async function registerRoutes(
       
       await storage.createOrderItems(orderItemsData);
       
-      for (const item of data.items) {
-        await storage.updateMenuItemStock(item.menuItemId, item.quantity);
-      }
+      // Note: Stock is now tracked at the day-slot assignment level
+      // Future enhancement: decrement assignment stock when orders are placed
       
       res.status(201).json(order);
     } catch (error) {
