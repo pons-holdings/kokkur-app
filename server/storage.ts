@@ -15,7 +15,7 @@ import {
   type ServingOption, type InsertServingOption,
   type ItemPhoto, type InsertItemPhoto,
   type IngredientWithAllergens,
-  type MenuItemWithDetails, type DaySlotWithItems, type MenuWithDaySlots, type ChefProfileWithDaySlots, type OrderWithItems
+  type MenuItemWithDetails, type MenuItemWithAssignment, type DaySlotWithItems, type MenuWithDaySlots, type ChefProfileWithDaySlots, type OrderWithItems
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, ilike, sql } from "drizzle-orm";
@@ -70,7 +70,7 @@ export interface IStorage {
   assignItemToDaySlot(daySlotId: number, menuItemId: number, stockLimited?: boolean, stockQuantity?: number): Promise<MenuItemAssignment>;
   updateDaySlotItemAssignment(daySlotId: number, menuItemId: number, stockLimited: boolean, stockQuantity?: number): Promise<void>;
   removeItemFromDaySlot(daySlotId: number, menuItemId: number): Promise<void>;
-  getItemsForDaySlot(daySlotId: number): Promise<MenuItemWithDetails[]>;
+  getItemsForDaySlot(daySlotId: number): Promise<MenuItemWithAssignment[]>;
   getAssignmentForDaySlot(daySlotId: number, menuItemId: number): Promise<MenuItemAssignment | undefined>;
 
   // Ingredients & Allergens
@@ -324,9 +324,9 @@ export class DatabaseStorage implements IStorage {
     );
   }
 
-  async getItemsForDaySlot(daySlotId: number): Promise<MenuItemWithDetails[]> {
+  async getItemsForDaySlot(daySlotId: number): Promise<MenuItemWithAssignment[]> {
     const result = await db
-      .select({ menuItem: menuItems })
+      .select({ menuItem: menuItems, assignment: menuItemAssignments })
       .from(menuItemAssignments)
       .innerJoin(menuItems, eq(menuItemAssignments.menuItemId, menuItems.id))
       .where(eq(menuItemAssignments.daySlotId, daySlotId));
@@ -344,7 +344,10 @@ export class DatabaseStorage implements IStorage {
           allergens: allergensList,
           servingOptions: servingOptionsList,
           photos: photosList,
-          coverPhoto: coverPhotoObj?.imageUrl
+          coverPhoto: coverPhotoObj?.imageUrl,
+          assignmentId: r.assignment.id,
+          stockLimited: r.assignment.stockLimited,
+          stockQuantity: r.assignment.stockQuantity
         };
       })
     );

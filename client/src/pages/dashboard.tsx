@@ -66,13 +66,15 @@ import {
   ListPlus,
   ChevronUp,
   ChevronDown,
+  Search,
+  Archive,
 } from "lucide-react";
 import { Header } from "@/components/header";
 import { IngredientTypeahead } from "@/components/ingredient-typeahead";
 import { ServingOptionsEditor, type ServingOptionInput } from "@/components/serving-options-editor";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { ChefProfileWithDaySlots, Allergen, Ingredient, OrderWithItems, MenuItem, MenuItemWithDetails, ServingOption } from "@shared/schema";
+import type { ChefProfileWithDaySlots, Allergen, Ingredient, OrderWithItems, MenuItem, MenuItemWithDetails, MenuItemWithAssignment, ServingOption } from "@shared/schema";
 
 const servingOptionSchema = z.object({
   id: z.number().optional(),
@@ -107,7 +109,7 @@ interface DaySlot {
   chefId: number;
   date: string;
   orderCutoffDate: string;
-  items?: MenuItemWithDetails[];
+  items?: MenuItemWithAssignment[];
 }
 
 
@@ -121,6 +123,7 @@ export default function Dashboard() {
   const [addDaySlotDate, setAddDaySlotDate] = useState("");
   const [addDaySlotCutoff, setAddDaySlotCutoff] = useState("");
   const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set());
+  const [itemSearchQuery, setItemSearchQuery] = useState("");
   const { toast } = useToast();
 
   const { data: chefs, isLoading: chefsLoading } = useQuery<ChefProfileWithDaySlots[]>({
@@ -240,8 +243,8 @@ export default function Dashboard() {
   });
 
   const assignItemToDaySlotMutation = useMutation({
-    mutationFn: async ({ daySlotId, itemId }: { daySlotId: number; itemId: number }) => {
-      return apiRequest("POST", `/api/day-slots/${daySlotId}/items/${itemId}`);
+    mutationFn: async ({ daySlotId, itemId, stockLimited, stockQuantity }: { daySlotId: number; itemId: number; stockLimited?: boolean; stockQuantity?: number }) => {
+      return apiRequest("POST", `/api/day-slots/${daySlotId}/items/${itemId}`, { stockLimited, stockQuantity });
     },
     onSuccess: () => {
       toast({ title: "Item added", description: "Item has been added to the day." });
@@ -250,6 +253,19 @@ export default function Dashboard() {
     },
     onError: (error: Error) => {
       toast({ title: "Error adding item", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const updateAssignmentMutation = useMutation({
+    mutationFn: async ({ daySlotId, itemId, stockLimited, stockQuantity }: { daySlotId: number; itemId: number; stockLimited: boolean; stockQuantity?: number }) => {
+      return apiRequest("PATCH", `/api/day-slots/${daySlotId}/items/${itemId}`, { stockLimited, stockQuantity });
+    },
+    onSuccess: () => {
+      toast({ title: "Stock updated", description: "Stock settings have been updated." });
+      queryClient.invalidateQueries({ queryKey: ["/api/chefs"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error updating stock", description: error.message, variant: "destructive" });
     },
   });
 
@@ -907,40 +923,133 @@ export default function Dashboard() {
                                 </Button>
                               </div>
                               
-                              {/* Item checkboxes */}
-                              <div>
-                                <p className="text-sm font-medium mb-2">Select items to offer:</p>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {/* Item search and assignment */}
+                              <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                  <p className="text-sm font-medium">Select items to offer:</p>
+                                  {chefMenuItems && chefMenuItems.length > 5 && (
+                                    <div className="relative max-w-xs">
+                                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                      <Input
+                                        placeholder="Search items..."
+                                        value={itemSearchQuery}
+                                        onChange={(e) => setItemSearchQuery(e.target.value)}
+                                        className="pl-8 h-8"
+                                        data-testid={`input-search-items-${dateKey}`}
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="grid grid-cols-1 gap-2 max-h-80 overflow-y-auto">
                                   {chefMenuItems && chefMenuItems.length > 0 ? (
-                                    chefMenuItems.map((item) => {
-                                      const isAssigned = existingSlot.items?.some((i: MenuItemWithDetails) => i.id === item.id) || false;
-                                      return (
-                                        <div key={item.id} className="flex items-center gap-3 p-3 rounded-lg border">
-                                          <Checkbox
-                                            checked={isAssigned}
-                                            onCheckedChange={async () => {
-                                              await toggleItemAssignment(existingSlot.id, item.id, isAssigned);
-                                            }}
-                                            disabled={assignItemToDaySlotMutation.isPending || removeItemFromDaySlotMutation.isPending}
-                                            data-testid={`checkbox-item-${dateKey}-${item.id}`}
-                                          />
-                                          <div className="min-w-0 flex-1">
-                                            <p className="font-medium truncate">{item.title}</p>
-                                            <p className="text-sm text-muted-foreground">
-                                              {(() => {
-                                                const opts = item.servingOptions || [];
-                                                if (opts.length === 0) return "No price set";
-                                                const defaultOpt = opts.find(o => o.isDefault === 1) || opts[0];
-                                                return `$${defaultOpt.price.toFixed(2)}`;
-                                              })()}
-                                            </p>
-                                          </div>
-                                        </div>
+                                    (() => {
+                                      const query = itemSearchQuery.toLowerCase();
+                                      const filteredItems = chefMenuItems.filter(item =>
+                                        !query ||
+                                        item.title.toLowerCase().includes(query) ||
+                                        item.description?.toLowerCase().includes(query) ||
+                                        item.ingredients?.some(i => i.name.toLowerCase().includes(query))
                                       );
-                                    })
+                                      
+                                      if (filteredItems.length === 0) {
+                                        return (
+                                          <p className="text-sm text-muted-foreground py-4">
+                                            No items match "{itemSearchQuery}".
+                                          </p>
+                                        );
+                                      }
+                                      
+                                      return filteredItems.map((item) => {
+                                        const assignedItem = existingSlot.items?.find((i) => i.id === item.id);
+                                        const isAssigned = !!assignedItem;
+                                        return (
+                                          <div key={item.id} className={`flex flex-col gap-2 p-3 rounded-lg border ${isAssigned ? 'bg-primary/5 border-primary/20' : ''}`}>
+                                            <div className="flex items-center gap-3">
+                                              <Checkbox
+                                                checked={isAssigned}
+                                                onCheckedChange={async () => {
+                                                  await toggleItemAssignment(existingSlot.id, item.id, isAssigned);
+                                                }}
+                                                disabled={assignItemToDaySlotMutation.isPending || removeItemFromDaySlotMutation.isPending}
+                                                data-testid={`checkbox-item-${dateKey}-${item.id}`}
+                                              />
+                                              {item.coverPhoto && (
+                                                <img src={item.coverPhoto} alt={item.title} className="w-10 h-10 rounded object-cover" />
+                                              )}
+                                              <div className="min-w-0 flex-1">
+                                                <p className="font-medium truncate">{item.title}</p>
+                                                <p className="text-sm text-muted-foreground">
+                                                  {(() => {
+                                                    const opts = item.servingOptions || [];
+                                                    if (opts.length === 0) return "No price set";
+                                                    if (opts.length === 1) return `$${opts[0].price.toFixed(2)}`;
+                                                    const prices = opts.map(o => o.price).sort((a, b) => a - b);
+                                                    return `$${prices[0].toFixed(2)} - $${prices[prices.length - 1].toFixed(2)}`;
+                                                  })()}
+                                                </p>
+                                              </div>
+                                              {isAssigned && assignedItem && (
+                                                <Badge variant={assignedItem.stockLimited === 1 ? "secondary" : "outline"} className="whitespace-nowrap">
+                                                  {assignedItem.stockLimited === 1 
+                                                    ? `${assignedItem.stockQuantity || 0} left` 
+                                                    : "Unlimited"}
+                                                </Badge>
+                                              )}
+                                            </div>
+                                            
+                                            {/* Stock controls - shown when assigned */}
+                                            {isAssigned && assignedItem && (
+                                              <div className="flex items-center gap-3 ml-7 pl-3 border-l-2 border-muted">
+                                                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                                                  <Checkbox
+                                                    checked={assignedItem.stockLimited === 1}
+                                                    onCheckedChange={async (checked) => {
+                                                      await updateAssignmentMutation.mutateAsync({
+                                                        daySlotId: existingSlot.id,
+                                                        itemId: item.id,
+                                                        stockLimited: !!checked,
+                                                        stockQuantity: checked ? (assignedItem.stockQuantity || 10) : undefined
+                                                      });
+                                                    }}
+                                                    disabled={updateAssignmentMutation.isPending}
+                                                    data-testid={`checkbox-stock-limited-${dateKey}-${item.id}`}
+                                                  />
+                                                  <span className="flex items-center gap-1">
+                                                    <Archive className="h-3.5 w-3.5" />
+                                                    Limit stock
+                                                  </span>
+                                                </label>
+                                                {assignedItem.stockLimited === 1 && (
+                                                  <div className="flex items-center gap-2">
+                                                    <Input
+                                                      type="number"
+                                                      min="0"
+                                                      value={assignedItem.stockQuantity || 0}
+                                                      onChange={async (e) => {
+                                                        const qty = parseInt(e.target.value) || 0;
+                                                        await updateAssignmentMutation.mutateAsync({
+                                                          daySlotId: existingSlot.id,
+                                                          itemId: item.id,
+                                                          stockLimited: true,
+                                                          stockQuantity: qty
+                                                        });
+                                                      }}
+                                                      className="w-20 h-7 text-sm"
+                                                      disabled={updateAssignmentMutation.isPending}
+                                                      data-testid={`input-stock-qty-${dateKey}-${item.id}`}
+                                                    />
+                                                    <span className="text-sm text-muted-foreground">available</span>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      });
+                                    })()
                                   ) : (
-                                    <p className="col-span-2 text-sm text-muted-foreground py-4">
-                                      No food items yet. Create some items in the "Food Items" tab first.
+                                    <p className="text-sm text-muted-foreground py-4">
+                                      No food items yet. Create some items in the "My Food Items" tab first.
                                     </p>
                                   )}
                                 </div>

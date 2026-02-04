@@ -347,12 +347,19 @@ export type MenuItemWithDetails = MenuItem & {
   coverPhoto?: string; // convenience field for the cover photo URL
 };
 
+// Extended type that includes assignment-level stock info for day slot views
+export type MenuItemWithAssignment = MenuItemWithDetails & {
+  assignmentId: number;
+  stockLimited: number;
+  stockQuantity: number | null;
+};
+
 export type DaySlotItemAssignment = MenuItemAssignment & {
   menuItem: MenuItemWithDetails;
 };
 
 export type DaySlotWithItems = MenuDaySlot & {
-  items: MenuItemWithDetails[];
+  items: MenuItemWithAssignment[];
   assignments?: DaySlotItemAssignment[];
 };
 

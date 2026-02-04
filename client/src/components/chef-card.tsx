@@ -5,21 +5,26 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Heart, MapPin, Truck, Store, ChefHat } from "lucide-react";
 import { useFavoritesStore } from "@/lib/favorites-store";
-import type { ChefProfileWithMenus } from "@shared/schema";
+import type { ChefProfileWithDaySlots } from "@shared/schema";
 
 interface ChefCardProps {
-  chef: ChefProfileWithMenus;
+  chef: ChefProfileWithDaySlots;
 }
 
 export function ChefCard({ chef }: ChefCardProps) {
   const { isFavorite, toggleFavorite } = useFavoritesStore();
   const favorite = isFavorite(chef.id);
 
-  const activeMenus = chef.menus?.filter((m) => m.status === "active") || [];
-  const activeItemCount = activeMenus.reduce(
-    (sum, menu) => sum + (menu.items?.length || 0),
-    0
-  );
+  // Count unique items across all day slots
+  const uniqueItemIds = new Set<number>();
+  chef.daySlots?.forEach((slot) => {
+    slot.items?.forEach((item) => uniqueItemIds.add(item.id));
+  });
+  const activeItemCount = uniqueItemIds.size;
+  
+  // Get a sample dish image to show in the card
+  const sampleDishImage = chef.daySlots?.flatMap(slot => slot.items || [])
+    .find(item => item.coverPhoto)?.coverPhoto;
 
   const getFulfillmentIcon = () => {
     switch (chef.fulfillmentMethod) {
@@ -55,10 +60,18 @@ export function ChefCard({ chef }: ChefCardProps) {
         data-testid={`card-chef-${chef.id}`}
       >
         <CardContent className="p-0">
-          <div className="relative h-36 bg-gradient-to-br from-primary/20 via-primary/10 to-accent/30">
-            <div className="absolute inset-0 flex items-center justify-center">
-              <ChefHat className="h-16 w-16 text-primary/30" />
-            </div>
+          <div className="relative h-36 bg-gradient-to-br from-primary/20 via-primary/10 to-accent/30 overflow-hidden">
+            {sampleDishImage ? (
+              <img 
+                src={sampleDishImage} 
+                alt={`Dish from ${chef.name}`}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <ChefHat className="h-16 w-16 text-primary/30" />
+              </div>
+            )}
             
             <Button
               variant="secondary"
