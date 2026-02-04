@@ -1,18 +1,248 @@
-import { sql } from "drizzle-orm";
-import { pgTable, text, varchar } from "drizzle-orm/pg-core";
+import { sql, relations } from "drizzle-orm";
+import { pgTable, text, varchar, integer, real, timestamp, pgEnum, primaryKey } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-export const users = pgTable("users", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  username: text("username").notNull().unique(),
-  password: text("password").notNull(),
+// Enums
+export const userRoleEnum = pgEnum("user_role", ["chef", "buyer"]);
+export const fulfillmentMethodEnum = pgEnum("fulfillment_method", ["pickup", "delivery", "both"]);
+export const menuStatusEnum = pgEnum("menu_status", ["draft", "active", "archived"]);
+export const orderStatusEnum = pgEnum("order_status", ["pending", "confirmed", "preparing", "ready", "completed", "cancelled"]);
+
+// Chef Profiles
+export const chefProfiles = pgTable("chef_profiles", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  slug: varchar("slug", { length: 100 }).notNull().unique(),
+  name: text("name").notNull(),
+  bio: text("bio"),
+  profileImageUrl: text("profile_image_url"),
+  cuisineTags: text("cuisine_tags").array().notNull().default(sql`'{}'::text[]`),
+  locationLat: real("location_lat").notNull(),
+  locationLong: real("location_long").notNull(),
+  locationName: text("location_name"),
+  serviceRadius: integer("service_radius").notNull().default(10),
+  fulfillmentMethod: fulfillmentMethodEnum("fulfillment_method").notNull().default("both"),
+  deliveryFee: real("delivery_fee").default(0),
 });
 
-export const insertUserSchema = createInsertSchema(users).pick({
-  username: true,
-  password: true,
+// Menus
+export const menus = pgTable("menus", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  chefId: integer("chef_id").notNull().references(() => chefProfiles.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  description: text("description"),
+  orderCutoffDate: timestamp("order_cutoff_date"),
+  fulfillmentDate: timestamp("fulfillment_date"),
+  status: menuStatusEnum("status").notNull().default("draft"),
 });
 
-export type InsertUser = z.infer<typeof insertUserSchema>;
-export type User = typeof users.$inferSelect;
+// Menu Items
+export const menuItems = pgTable("menu_items", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  menuId: integer("menu_id").notNull().references(() => menus.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  description: text("description"),
+  price: real("price").notNull(),
+  imageUrl: text("image_url"),
+  stockQuantity: integer("stock_quantity").notNull().default(0),
+  unitType: text("unit_type").notNull().default("per meal"),
+});
+
+// Ingredients
+export const ingredients = pgTable("ingredients", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  name: text("name").notNull().unique(),
+});
+
+// Allergens
+export const allergens = pgTable("allergens", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  name: text("name").notNull().unique(),
+  icon: text("icon"),
+});
+
+// Item Ingredients (many-to-many)
+export const itemIngredients = pgTable("item_ingredients", {
+  menuItemId: integer("menu_item_id").notNull().references(() => menuItems.id, { onDelete: "cascade" }),
+  ingredientId: integer("ingredient_id").notNull().references(() => ingredients.id, { onDelete: "cascade" }),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.menuItemId, table.ingredientId] }),
+}));
+
+// Item Allergens (many-to-many)
+export const itemAllergens = pgTable("item_allergens", {
+  menuItemId: integer("menu_item_id").notNull().references(() => menuItems.id, { onDelete: "cascade" }),
+  allergenId: integer("allergen_id").notNull().references(() => allergens.id, { onDelete: "cascade" }),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.menuItemId, table.allergenId] }),
+}));
+
+// Orders
+export const orders = pgTable("orders", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  chefId: integer("chef_id").notNull().references(() => chefProfiles.id),
+  buyerName: text("buyer_name").notNull(),
+  buyerEmail: text("buyer_email"),
+  buyerPhone: text("buyer_phone"),
+  totalAmount: real("total_amount").notNull(),
+  status: orderStatusEnum("status").notNull().default("pending"),
+  fulfillmentMethod: fulfillmentMethodEnum("fulfillment_method").notNull(),
+  deliveryAddress: text("delivery_address"),
+  deliveryLat: real("delivery_lat"),
+  deliveryLong: real("delivery_long"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Order Items
+export const orderItems = pgTable("order_items", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  orderId: integer("order_id").notNull().references(() => orders.id, { onDelete: "cascade" }),
+  menuItemId: integer("menu_item_id").notNull().references(() => menuItems.id),
+  quantity: integer("quantity").notNull(),
+  priceAtOrder: real("price_at_order").notNull(),
+  itemTitle: text("item_title").notNull(),
+});
+
+// User Favorites (for demo, stored in localStorage, but schema for future)
+export const userFavorites = pgTable("user_favorites", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  chefId: integer("chef_id").notNull().references(() => chefProfiles.id, { onDelete: "cascade" }),
+  sessionId: text("session_id").notNull(),
+}, (table) => ({
+}));
+
+// Relations
+export const chefProfilesRelations = relations(chefProfiles, ({ many }) => ({
+  menus: many(menus),
+  orders: many(orders),
+  favorites: many(userFavorites),
+}));
+
+export const menusRelations = relations(menus, ({ one, many }) => ({
+  chef: one(chefProfiles, {
+    fields: [menus.chefId],
+    references: [chefProfiles.id],
+  }),
+  items: many(menuItems),
+}));
+
+export const menuItemsRelations = relations(menuItems, ({ one, many }) => ({
+  menu: one(menus, {
+    fields: [menuItems.menuId],
+    references: [menus.id],
+  }),
+  ingredients: many(itemIngredients),
+  allergens: many(itemAllergens),
+  orderItems: many(orderItems),
+}));
+
+export const ingredientsRelations = relations(ingredients, ({ many }) => ({
+  menuItems: many(itemIngredients),
+}));
+
+export const allergensRelations = relations(allergens, ({ many }) => ({
+  menuItems: many(itemAllergens),
+}));
+
+export const itemIngredientsRelations = relations(itemIngredients, ({ one }) => ({
+  menuItem: one(menuItems, {
+    fields: [itemIngredients.menuItemId],
+    references: [menuItems.id],
+  }),
+  ingredient: one(ingredients, {
+    fields: [itemIngredients.ingredientId],
+    references: [ingredients.id],
+  }),
+}));
+
+export const itemAllergensRelations = relations(itemAllergens, ({ one }) => ({
+  menuItem: one(menuItems, {
+    fields: [itemAllergens.menuItemId],
+    references: [menuItems.id],
+  }),
+  allergen: one(allergens, {
+    fields: [itemAllergens.allergenId],
+    references: [allergens.id],
+  }),
+}));
+
+export const ordersRelations = relations(orders, ({ one, many }) => ({
+  chef: one(chefProfiles, {
+    fields: [orders.chefId],
+    references: [chefProfiles.id],
+  }),
+  items: many(orderItems),
+}));
+
+export const orderItemsRelations = relations(orderItems, ({ one }) => ({
+  order: one(orders, {
+    fields: [orderItems.orderId],
+    references: [orders.id],
+  }),
+  menuItem: one(menuItems, {
+    fields: [orderItems.menuItemId],
+    references: [menuItems.id],
+  }),
+}));
+
+export const userFavoritesRelations = relations(userFavorites, ({ one }) => ({
+  chef: one(chefProfiles, {
+    fields: [userFavorites.chefId],
+    references: [chefProfiles.id],
+  }),
+}));
+
+// Insert Schemas
+export const insertChefProfileSchema = createInsertSchema(chefProfiles).omit({ id: true });
+export const insertMenuSchema = createInsertSchema(menus).omit({ id: true });
+export const insertMenuItemSchema = createInsertSchema(menuItems).omit({ id: true });
+export const insertIngredientSchema = createInsertSchema(ingredients).omit({ id: true });
+export const insertAllergenSchema = createInsertSchema(allergens).omit({ id: true });
+export const insertOrderSchema = createInsertSchema(orders).omit({ id: true, createdAt: true });
+export const insertOrderItemSchema = createInsertSchema(orderItems).omit({ id: true });
+export const insertItemIngredientSchema = createInsertSchema(itemIngredients);
+export const insertItemAllergenSchema = createInsertSchema(itemAllergens);
+export const insertUserFavoriteSchema = createInsertSchema(userFavorites).omit({ id: true });
+
+// Types
+export type ChefProfile = typeof chefProfiles.$inferSelect;
+export type InsertChefProfile = z.infer<typeof insertChefProfileSchema>;
+export type Menu = typeof menus.$inferSelect;
+export type InsertMenu = z.infer<typeof insertMenuSchema>;
+export type MenuItem = typeof menuItems.$inferSelect;
+export type InsertMenuItem = z.infer<typeof insertMenuItemSchema>;
+export type Ingredient = typeof ingredients.$inferSelect;
+export type InsertIngredient = z.infer<typeof insertIngredientSchema>;
+export type Allergen = typeof allergens.$inferSelect;
+export type InsertAllergen = z.infer<typeof insertAllergenSchema>;
+export type Order = typeof orders.$inferSelect;
+export type InsertOrder = z.infer<typeof insertOrderSchema>;
+export type OrderItem = typeof orderItems.$inferSelect;
+export type InsertOrderItem = z.infer<typeof insertOrderItemSchema>;
+export type ItemIngredient = typeof itemIngredients.$inferSelect;
+export type InsertItemIngredient = z.infer<typeof insertItemIngredientSchema>;
+export type ItemAllergen = typeof itemAllergens.$inferSelect;
+export type InsertItemAllergen = z.infer<typeof insertItemAllergenSchema>;
+export type UserFavorite = typeof userFavorites.$inferSelect;
+export type InsertUserFavorite = z.infer<typeof insertUserFavoriteSchema>;
+
+// Extended types for API responses
+export type MenuItemWithDetails = MenuItem & {
+  ingredients: Ingredient[];
+  allergens: Allergen[];
+};
+
+export type MenuWithItems = Menu & {
+  items: MenuItemWithDetails[];
+};
+
+export type ChefProfileWithMenus = ChefProfile & {
+  menus: MenuWithItems[];
+  distance?: number;
+};
+
+export type OrderWithItems = Order & {
+  items: (OrderItem & { menuItem?: MenuItem })[];
+  chef?: ChefProfile;
+};
