@@ -298,8 +298,12 @@ export default function Dashboard() {
       return apiRequest("POST", `/api/menus/${menuId}/items/${itemId}`);
     },
     onSuccess: () => {
+      toast({ title: "Item added", description: "Item has been added to the menu." });
       queryClient.invalidateQueries({ queryKey: ["/api/chefs"] });
       queryClient.invalidateQueries({ queryKey: ["/api/menus/chef", selectedChef?.id] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error adding item", description: error.message, variant: "destructive" });
     },
   });
 
@@ -308,8 +312,12 @@ export default function Dashboard() {
       return apiRequest("DELETE", `/api/menus/${menuId}/items/${itemId}`);
     },
     onSuccess: () => {
+      toast({ title: "Item removed", description: "Item has been removed from the menu." });
       queryClient.invalidateQueries({ queryKey: ["/api/chefs"] });
       queryClient.invalidateQueries({ queryKey: ["/api/menus/chef", selectedChef?.id] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error removing item", description: error.message, variant: "destructive" });
     },
   });
 

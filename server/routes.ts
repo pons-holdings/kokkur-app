@@ -101,13 +101,22 @@ export async function registerRoutes(
     }
   });
 
+  const updateMenuSchema = z.object({
+    title: z.string().min(2).optional(),
+    description: z.string().optional(),
+    orderCutoffDate: z.string().optional().nullable(),
+    fulfillmentDate: z.string().optional().nullable(),
+    status: z.enum(["draft", "active", "archived"]).optional(),
+  });
+
   app.patch("/api/menus/:menuId", async (req, res) => {
     try {
       const menuId = parseInt(req.params.menuId);
       if (isNaN(menuId)) {
         return res.status(400).json({ error: "Invalid menu ID" });
       }
-      const data = req.body;
+      const validated = updateMenuSchema.parse(req.body);
+      const data: any = { ...validated };
       if (data.orderCutoffDate) data.orderCutoffDate = new Date(data.orderCutoffDate);
       if (data.fulfillmentDate) data.fulfillmentDate = new Date(data.fulfillmentDate);
       const menu = await storage.updateMenu(menuId, data);
@@ -116,6 +125,9 @@ export async function registerRoutes(
       }
       res.json(menu);
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid data", details: error.errors });
+      }
       console.error("Error updating menu:", error);
       res.status(500).json({ error: "Failed to update menu" });
     }
@@ -198,6 +210,17 @@ export async function registerRoutes(
     }
   });
 
+  const updateMenuItemSchema = z.object({
+    title: z.string().min(2).optional(),
+    description: z.string().optional().nullable(),
+    price: z.number().min(0.01).optional(),
+    stockQuantity: z.number().min(0).optional(),
+    unitType: z.string().min(1).optional(),
+    imageUrl: z.string().optional().nullable(),
+    allergenIds: z.array(z.number()).optional(),
+    ingredientIds: z.array(z.number()).optional(),
+  });
+
   app.patch("/api/menu-items/:itemId", async (req, res) => {
     try {
       const itemId = parseInt(req.params.itemId);
@@ -205,8 +228,8 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid item ID" });
       }
       
-      const data = req.body;
-      const { allergenIds, ingredientIds, ...itemData } = data;
+      const validated = updateMenuItemSchema.parse(req.body);
+      const { allergenIds, ingredientIds, ...itemData } = validated;
       
       const item = await storage.updateMenuItem(itemId, itemData);
       if (!item) {
@@ -230,6 +253,9 @@ export async function registerRoutes(
       const itemWithDetails = await storage.getMenuItemById(itemId);
       res.json(itemWithDetails);
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid data", details: error.errors });
+      }
       console.error("Error updating menu item:", error);
       res.status(500).json({ error: "Failed to update menu item" });
     }
