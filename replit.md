@@ -32,14 +32,19 @@ Preferred communication style: Simple, everyday language.
 - **Key Entities**: ChefProfiles, Menus, MenuDaySlots, MenuItems, Ingredients, Allergens, Orders, OrderItems, UserFavorites
 - **Join Tables**: ItemIngredients, ItemAllergens, and MenuItemAssignments for many-to-many relationships
 
-### Menu Structure (Day-Based)
-- **Menus are Week-Based**: Each menu has a `weekStartDate` representing the Monday of that week
-- **Day Slots**: Menus contain `menu_day_slots` - specific days within the week when food is offered
+### Menu Structure (Date Range-Based)
+- **Menus use Date Ranges**: Each menu has `startDate` and `endDate` defining the date range it covers
+- **Day Slots**: Menus contain `menu_day_slots` - specific days within the range when food is offered
   - Each day slot has a `date` (fulfillment date) and `orderCutoffDate` (last day to order)
+  - Day slots can be updated via PATCH without losing item assignments
 - **Item Assignments**: Menu items are assigned to specific day slots via `menu_item_assignments` table
   - Items can be assigned to multiple days across different menus
   - Chef's food items remain separate entities owned by the chef
-- **Dashboard Management**: Chefs manage day slots through "Manage Days" dialog, then assign items to each day
+- **Unified Dashboard Management**: 
+  - Chefs manage menus through a single unified dialog that shows all days in the date range
+  - Each day has a checkbox to enable/disable it (creates/deletes day slot)
+  - Enabled days can be expanded to configure order cutoff and assign items via checkboxes
+  - Edit Food Item dialog includes image upload, allergens, and ingredients (matching create flow)
 
 ### Geo-Location Features
 - **Distance Calculations**: geolib library for calculating distances between users and chefs
