@@ -36,10 +36,10 @@ export const menus = pgTable("menus", {
   status: menuStatusEnum("status").notNull().default("draft"),
 });
 
-// Menu Items
+// Menu Items (belong to chef, can be assigned to multiple menus)
 export const menuItems = pgTable("menu_items", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  menuId: integer("menu_id").notNull().references(() => menus.id, { onDelete: "cascade" }),
+  chefId: integer("chef_id").notNull().references(() => chefProfiles.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   description: text("description"),
   price: real("price").notNull(),
@@ -47,6 +47,14 @@ export const menuItems = pgTable("menu_items", {
   stockQuantity: integer("stock_quantity").notNull().default(0),
   unitType: text("unit_type").notNull().default("per meal"),
 });
+
+// Menu Item Assignments (many-to-many: items can be on multiple menus)
+export const menuItemAssignments = pgTable("menu_item_assignments", {
+  menuId: integer("menu_id").notNull().references(() => menus.id, { onDelete: "cascade" }),
+  menuItemId: integer("menu_item_id").notNull().references(() => menuItems.id, { onDelete: "cascade" }),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.menuId, table.menuItemId] }),
+}));
 
 // Ingredients
 export const ingredients = pgTable("ingredients", {
@@ -115,6 +123,7 @@ export const userFavorites = pgTable("user_favorites", {
 // Relations
 export const chefProfilesRelations = relations(chefProfiles, ({ many }) => ({
   menus: many(menus),
+  menuItems: many(menuItems),
   orders: many(orders),
   favorites: many(userFavorites),
 }));
@@ -124,17 +133,29 @@ export const menusRelations = relations(menus, ({ one, many }) => ({
     fields: [menus.chefId],
     references: [chefProfiles.id],
   }),
-  items: many(menuItems),
+  itemAssignments: many(menuItemAssignments),
 }));
 
 export const menuItemsRelations = relations(menuItems, ({ one, many }) => ({
-  menu: one(menus, {
-    fields: [menuItems.menuId],
-    references: [menus.id],
+  chef: one(chefProfiles, {
+    fields: [menuItems.chefId],
+    references: [chefProfiles.id],
   }),
+  menuAssignments: many(menuItemAssignments),
   ingredients: many(itemIngredients),
   allergens: many(itemAllergens),
   orderItems: many(orderItems),
+}));
+
+export const menuItemAssignmentsRelations = relations(menuItemAssignments, ({ one }) => ({
+  menu: one(menus, {
+    fields: [menuItemAssignments.menuId],
+    references: [menus.id],
+  }),
+  menuItem: one(menuItems, {
+    fields: [menuItemAssignments.menuItemId],
+    references: [menuItems.id],
+  }),
 }));
 
 export const ingredientsRelations = relations(ingredients, ({ many }) => ({
@@ -197,6 +218,7 @@ export const userFavoritesRelations = relations(userFavorites, ({ one }) => ({
 export const insertChefProfileSchema = createInsertSchema(chefProfiles).omit({ id: true });
 export const insertMenuSchema = createInsertSchema(menus).omit({ id: true });
 export const insertMenuItemSchema = createInsertSchema(menuItems).omit({ id: true });
+export const insertMenuItemAssignmentSchema = createInsertSchema(menuItemAssignments);
 export const insertIngredientSchema = createInsertSchema(ingredients).omit({ id: true });
 export const insertAllergenSchema = createInsertSchema(allergens).omit({ id: true });
 export const insertOrderSchema = createInsertSchema(orders).omit({ id: true, createdAt: true });
@@ -224,6 +246,8 @@ export type ItemIngredient = typeof itemIngredients.$inferSelect;
 export type InsertItemIngredient = z.infer<typeof insertItemIngredientSchema>;
 export type ItemAllergen = typeof itemAllergens.$inferSelect;
 export type InsertItemAllergen = z.infer<typeof insertItemAllergenSchema>;
+export type MenuItemAssignment = typeof menuItemAssignments.$inferSelect;
+export type InsertMenuItemAssignment = z.infer<typeof insertMenuItemAssignmentSchema>;
 export type UserFavorite = typeof userFavorites.$inferSelect;
 export type InsertUserFavorite = z.infer<typeof insertUserFavoriteSchema>;
 
@@ -239,6 +263,7 @@ export type MenuWithItems = Menu & {
 
 export type ChefProfileWithMenus = ChefProfile & {
   menus: MenuWithItems[];
+  menuItems?: MenuItemWithDetails[];
   distance?: number;
 };
 

@@ -1,9 +1,10 @@
 import { 
-  chefProfiles, menus, menuItems, ingredients, allergens,
+  chefProfiles, menus, menuItems, menuItemAssignments, ingredients, allergens,
   itemIngredients, itemAllergens, orders, orderItems, userFavorites,
   type ChefProfile, type InsertChefProfile,
   type Menu, type InsertMenu,
   type MenuItem, type InsertMenuItem,
+  type MenuItemAssignment, type InsertMenuItemAssignment,
   type Ingredient, type InsertIngredient,
   type Allergen, type InsertAllergen,
   type Order, type InsertOrder,
@@ -23,14 +24,27 @@ export interface IStorage {
 
   // Menus
   getMenusByChefId(chefId: number): Promise<MenuWithItems[]>;
+  getMenuById(id: number): Promise<Menu | undefined>;
   createMenu(menu: InsertMenu): Promise<Menu>;
+  updateMenu(id: number, menu: Partial<InsertMenu>): Promise<Menu | undefined>;
+  deleteMenu(id: number): Promise<boolean>;
 
-  // Menu Items
+  // Menu Items (belong to chef, can be assigned to multiple menus)
+  getMenuItemsByChefId(chefId: number): Promise<MenuItemWithDetails[]>;
   getMenuItemById(id: number): Promise<MenuItemWithDetails | undefined>;
   createMenuItem(item: InsertMenuItem): Promise<MenuItem>;
+  updateMenuItem(id: number, item: Partial<InsertMenuItem>): Promise<MenuItem | undefined>;
+  deleteMenuItem(id: number): Promise<boolean>;
   updateMenuItemStock(id: number, quantity: number): Promise<void>;
   addItemIngredients(menuItemId: number, ingredientIds: number[]): Promise<void>;
   addItemAllergens(menuItemId: number, allergenIds: number[]): Promise<void>;
+  clearItemIngredients(menuItemId: number): Promise<void>;
+  clearItemAllergens(menuItemId: number): Promise<void>;
+
+  // Menu-Item Assignments (many-to-many)
+  assignItemToMenu(menuId: number, menuItemId: number): Promise<void>;
+  removeItemFromMenu(menuId: number, menuItemId: number): Promise<void>;
+  getItemsForMenu(menuId: number): Promise<MenuItemWithDetails[]>;
 
   // Ingredients & Allergens
   getIngredients(): Promise<Ingredient[]>;
@@ -87,16 +101,7 @@ export class DatabaseStorage implements IStorage {
     
     const menusWithItems = await Promise.all(
       menusData.map(async (menu) => {
-        const items = await db.select().from(menuItems).where(eq(menuItems.menuId, menu.id));
-        
-        const itemsWithDetails = await Promise.all(
-          items.map(async (item) => {
-            const ingredientsList = await this.getIngredientsByMenuItemId(item.id);
-            const allergensList = await this.getAllergensByMenuItemId(item.id);
-            return { ...item, ingredients: ingredientsList, allergens: allergensList };
-          })
-        );
-        
+        const itemsWithDetails = await this.getItemsForMenu(menu.id);
         return { ...menu, items: itemsWithDetails };
       })
     );
@@ -104,9 +109,24 @@ export class DatabaseStorage implements IStorage {
     return menusWithItems;
   }
 
+  async getMenuById(id: number): Promise<Menu | undefined> {
+    const [menu] = await db.select().from(menus).where(eq(menus.id, id));
+    return menu || undefined;
+  }
+
   async createMenu(menu: InsertMenu): Promise<Menu> {
     const [newMenu] = await db.insert(menus).values(menu).returning();
     return newMenu;
+  }
+
+  async updateMenu(id: number, menu: Partial<InsertMenu>): Promise<Menu | undefined> {
+    const [updated] = await db.update(menus).set(menu).where(eq(menus.id, id)).returning();
+    return updated;
+  }
+
+  async deleteMenu(id: number): Promise<boolean> {
+    const result = await db.delete(menus).where(eq(menus.id, id)).returning();
+    return result.length > 0;
   }
 
   async getMenuItemById(id: number): Promise<MenuItemWithDetails | undefined> {
@@ -150,6 +170,69 @@ export class DatabaseStorage implements IStorage {
     }));
     
     await db.insert(itemAllergens).values(values).onConflictDoNothing();
+  }
+
+  async clearItemIngredients(menuItemId: number): Promise<void> {
+    await db.delete(itemIngredients).where(eq(itemIngredients.menuItemId, menuItemId));
+  }
+
+  async clearItemAllergens(menuItemId: number): Promise<void> {
+    await db.delete(itemAllergens).where(eq(itemAllergens.menuItemId, menuItemId));
+  }
+
+  async getMenuItemsByChefId(chefId: number): Promise<MenuItemWithDetails[]> {
+    const items = await db.select().from(menuItems).where(eq(menuItems.chefId, chefId));
+    
+    const itemsWithDetails = await Promise.all(
+      items.map(async (item) => {
+        const ingredientsList = await this.getIngredientsByMenuItemId(item.id);
+        const allergensList = await this.getAllergensByMenuItemId(item.id);
+        return { ...item, ingredients: ingredientsList, allergens: allergensList };
+      })
+    );
+    
+    return itemsWithDetails;
+  }
+
+  async updateMenuItem(id: number, item: Partial<InsertMenuItem>): Promise<MenuItem | undefined> {
+    const [updated] = await db.update(menuItems).set(item).where(eq(menuItems.id, id)).returning();
+    return updated;
+  }
+
+  async deleteMenuItem(id: number): Promise<boolean> {
+    const result = await db.delete(menuItems).where(eq(menuItems.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async assignItemToMenu(menuId: number, menuItemId: number): Promise<void> {
+    await db.insert(menuItemAssignments).values({ menuId, menuItemId }).onConflictDoNothing();
+  }
+
+  async removeItemFromMenu(menuId: number, menuItemId: number): Promise<void> {
+    await db.delete(menuItemAssignments).where(
+      and(
+        eq(menuItemAssignments.menuId, menuId),
+        eq(menuItemAssignments.menuItemId, menuItemId)
+      )
+    );
+  }
+
+  async getItemsForMenu(menuId: number): Promise<MenuItemWithDetails[]> {
+    const result = await db
+      .select({ menuItem: menuItems })
+      .from(menuItemAssignments)
+      .innerJoin(menuItems, eq(menuItemAssignments.menuItemId, menuItems.id))
+      .where(eq(menuItemAssignments.menuId, menuId));
+    
+    const itemsWithDetails = await Promise.all(
+      result.map(async (r) => {
+        const ingredientsList = await this.getIngredientsByMenuItemId(r.menuItem.id);
+        const allergensList = await this.getAllergensByMenuItemId(r.menuItem.id);
+        return { ...r.menuItem, ingredients: ingredientsList, allergens: allergensList };
+      })
+    );
+    
+    return itemsWithDetails;
   }
 
   async getIngredients(): Promise<Ingredient[]> {
@@ -330,8 +413,9 @@ export class DatabaseStorage implements IStorage {
     const findAllergen = (name: string) => createdAllergens.find((a) => a.name === name)?.id || 0;
     const findIngredient = (name: string) => createdIngredients.find((i) => i.name === name)?.id || 0;
 
+    // Chef 1's items
     const item1 = await this.createMenuItem({
-      menuId: menu1.id,
+      chefId: chef1.id,
       title: "Chicken Enchiladas Verdes",
       description: "Tender shredded chicken wrapped in corn tortillas, smothered in tangy tomatillo salsa verde and melted cheese. Served with rice and beans.",
       price: 16.99,
@@ -340,9 +424,10 @@ export class DatabaseStorage implements IStorage {
     });
     await this.addItemAllergens(item1.id, [findAllergen("Milk")]);
     await this.addItemIngredients(item1.id, [findIngredient("Chicken"), findIngredient("Cheese"), findIngredient("Onions"), findIngredient("Rice")]);
+    await this.assignItemToMenu(menu1.id, item1.id);
 
     const item2 = await this.createMenuItem({
-      menuId: menu1.id,
+      chefId: chef1.id,
       title: "Vegetarian Tamales",
       description: "Handmade masa tamales filled with roasted poblano peppers and queso fresco, wrapped in corn husks.",
       price: 14.99,
@@ -351,9 +436,10 @@ export class DatabaseStorage implements IStorage {
     });
     await this.addItemAllergens(item2.id, [findAllergen("Milk")]);
     await this.addItemIngredients(item2.id, [findIngredient("Cheese"), findIngredient("Bell Peppers")]);
+    await this.assignItemToMenu(menu1.id, item2.id);
 
     const item3 = await this.createMenuItem({
-      menuId: menu1.id,
+      chefId: chef1.id,
       title: "Carnitas Taco Platter",
       description: "Slow-braised pork carnitas with pickled onions, fresh cilantro, and homemade salsa. Includes 6 tacos.",
       price: 18.99,
@@ -361,9 +447,11 @@ export class DatabaseStorage implements IStorage {
       unitType: "per platter",
     });
     await this.addItemIngredients(item3.id, [findIngredient("Pork"), findIngredient("Onions"), findIngredient("Garlic")]);
+    await this.assignItemToMenu(menu1.id, item3.id);
 
+    // Chef 2's items
     const item4 = await this.createMenuItem({
-      menuId: menu2.id,
+      chefId: chef2.id,
       title: "Homemade Lasagna",
       description: "Layers of fresh pasta, rich beef bolognese, creamy bechamel, and aged parmesan. A family recipe perfected over generations.",
       price: 24.99,
@@ -372,9 +460,10 @@ export class DatabaseStorage implements IStorage {
     });
     await this.addItemAllergens(item4.id, [findAllergen("Milk"), findAllergen("Eggs"), findAllergen("Wheat")]);
     await this.addItemIngredients(item4.id, [findIngredient("Beef"), findIngredient("Pasta"), findIngredient("Cheese"), findIngredient("Tomatoes")]);
+    await this.assignItemToMenu(menu2.id, item4.id);
 
     const item5 = await this.createMenuItem({
-      menuId: menu2.id,
+      chefId: chef2.id,
       title: "Fresh Fettuccine Alfredo",
       description: "Hand-cut fettuccine in a velvety parmesan cream sauce with fresh cracked pepper.",
       price: 17.99,
@@ -383,9 +472,10 @@ export class DatabaseStorage implements IStorage {
     });
     await this.addItemAllergens(item5.id, [findAllergen("Milk"), findAllergen("Eggs"), findAllergen("Wheat")]);
     await this.addItemIngredients(item5.id, [findIngredient("Pasta"), findIngredient("Butter"), findIngredient("Cream"), findIngredient("Cheese")]);
+    await this.assignItemToMenu(menu2.id, item5.id);
 
     const item6 = await this.createMenuItem({
-      menuId: menu2.id,
+      chefId: chef2.id,
       title: "Chicken Parmesan",
       description: "Crispy breaded chicken cutlet topped with marinara and melted mozzarella, served over spaghetti.",
       price: 19.99,
@@ -394,9 +484,10 @@ export class DatabaseStorage implements IStorage {
     });
     await this.addItemAllergens(item6.id, [findAllergen("Milk"), findAllergen("Eggs"), findAllergen("Wheat")]);
     await this.addItemIngredients(item6.id, [findIngredient("Chicken"), findIngredient("Pasta"), findIngredient("Tomatoes"), findIngredient("Cheese")]);
+    await this.assignItemToMenu(menu2.id, item6.id);
 
     const item7 = await this.createMenuItem({
-      menuId: menu2.id,
+      chefId: chef2.id,
       title: "Tiramisu",
       description: "Classic Italian dessert with espresso-soaked ladyfingers and mascarpone cream.",
       price: 9.99,
@@ -404,9 +495,11 @@ export class DatabaseStorage implements IStorage {
       unitType: "per piece",
     });
     await this.addItemAllergens(item7.id, [findAllergen("Milk"), findAllergen("Eggs"), findAllergen("Wheat")]);
+    await this.assignItemToMenu(menu2.id, item7.id);
 
+    // Chef 3's items
     const item8 = await this.createMenuItem({
-      menuId: menu3.id,
+      chefId: chef3.id,
       title: "Teriyaki Salmon Bowl",
       description: "Glazed salmon over jasmine rice with pickled vegetables, edamame, and sesame seeds.",
       price: 21.99,
@@ -415,9 +508,10 @@ export class DatabaseStorage implements IStorage {
     });
     await this.addItemAllergens(item8.id, [findAllergen("Fish"), findAllergen("Soy"), findAllergen("Sesame")]);
     await this.addItemIngredients(item8.id, [findIngredient("Salmon"), findIngredient("Rice"), findIngredient("Carrots")]);
+    await this.assignItemToMenu(menu3.id, item8.id);
 
     const item9 = await this.createMenuItem({
-      menuId: menu3.id,
+      chefId: chef3.id,
       title: "Pad Thai",
       description: "Stir-fried rice noodles with shrimp, tofu, bean sprouts, and crushed peanuts in tamarind sauce.",
       price: 16.99,
@@ -426,9 +520,10 @@ export class DatabaseStorage implements IStorage {
     });
     await this.addItemAllergens(item9.id, [findAllergen("Shellfish"), findAllergen("Peanuts"), findAllergen("Soy"), findAllergen("Eggs")]);
     await this.addItemIngredients(item9.id, [findIngredient("Shrimp"), findIngredient("Tofu"), findIngredient("Rice")]);
+    await this.assignItemToMenu(menu3.id, item9.id);
 
     const item10 = await this.createMenuItem({
-      menuId: menu3.id,
+      chefId: chef3.id,
       title: "Thai Green Curry",
       description: "Aromatic coconut curry with vegetables and your choice of chicken or tofu. Served with jasmine rice.",
       price: 17.99,
@@ -437,9 +532,10 @@ export class DatabaseStorage implements IStorage {
     });
     await this.addItemAllergens(item10.id, [findAllergen("Soy")]);
     await this.addItemIngredients(item10.id, [findIngredient("Chicken"), findIngredient("Coconut Milk"), findIngredient("Rice"), findIngredient("Broccoli")]);
+    await this.assignItemToMenu(menu3.id, item10.id);
 
     const item11 = await this.createMenuItem({
-      menuId: menu3.id,
+      chefId: chef3.id,
       title: "Vegetable Spring Rolls",
       description: "Crispy fried spring rolls filled with cabbage, carrots, and glass noodles. Served with sweet chili sauce.",
       price: 8.99,
@@ -448,9 +544,10 @@ export class DatabaseStorage implements IStorage {
     });
     await this.addItemAllergens(item11.id, [findAllergen("Wheat"), findAllergen("Soy")]);
     await this.addItemIngredients(item11.id, [findIngredient("Carrots")]);
+    await this.assignItemToMenu(menu3.id, item11.id);
 
     const item12 = await this.createMenuItem({
-      menuId: menu3.id,
+      chefId: chef3.id,
       title: "Miso Glazed Tofu Bowl",
       description: "Crispy tofu with miso glaze, quinoa, roasted vegetables, and ginger dressing. Vegan and gluten-free.",
       price: 15.99,
@@ -459,6 +556,7 @@ export class DatabaseStorage implements IStorage {
     });
     await this.addItemAllergens(item12.id, [findAllergen("Soy")]);
     await this.addItemIngredients(item12.id, [findIngredient("Tofu"), findIngredient("Quinoa"), findIngredient("Broccoli"), findIngredient("Carrots")]);
+    await this.assignItemToMenu(menu3.id, item12.id);
 
     console.log("Database seeded successfully!");
   }
