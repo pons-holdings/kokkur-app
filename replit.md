@@ -43,6 +43,18 @@ Preferred communication style: Simple, everyday language.
 - **Cart Management**: Single-chef cart policy with modal confirmation when switching chefs
 - **Allergen Filtering**: Client-side filtering of menu items based on excluded allergens
 
+### Image Upload (Menu Items)
+- **Storage**: Replit Object Storage for file uploads
+- **Upload Flow**: Client requests presigned URL from `/api/uploads/request-url`, then uploads directly to storage
+- **Validation**: Server-side validation for file type (JPEG, PNG, GIF, WebP) and size (max 10MB)
+- **Display**: MenuItemCard component renders image if `imageUrl` exists, falls back to placeholder icon
+- **Routes**: Object storage routes in `server/replit_integrations/object_storage/routes.ts`
+
+### Search Functionality
+- **Location**: Search bar on home page filters chefs and dishes
+- **Matching**: Searches by chef name, cuisine tags, dish titles, descriptions, and ingredients
+- **Results**: Shows matching dishes with chef info and links to chef profiles
+
 ## External Dependencies
 
 ### Database
