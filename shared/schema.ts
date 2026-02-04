@@ -36,10 +36,10 @@ export const menus = pgTable("menus", {
   status: menuStatusEnum("status").notNull().default("draft"),
 });
 
-// Menu Day Slots (individual days within a menu week)
+// Day Slots (individual days when chef offers food - belongs directly to chef)
 export const menuDaySlots = pgTable("menu_day_slots", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  menuId: integer("menu_id").notNull().references(() => menus.id, { onDelete: "cascade" }),
+  chefId: integer("chef_id").notNull().references(() => chefProfiles.id, { onDelete: "cascade" }),
   date: timestamp("date").notNull(), // The actual date for this slot
   orderCutoffDate: timestamp("order_cutoff_date").notNull(), // Cutoff for ordering this day's items
 });
@@ -132,6 +132,7 @@ export const userFavorites = pgTable("user_favorites", {
 export const chefProfilesRelations = relations(chefProfiles, ({ many }) => ({
   menus: many(menus),
   menuItems: many(menuItems),
+  daySlots: many(menuDaySlots),
   orders: many(orders),
   favorites: many(userFavorites),
 }));
@@ -145,9 +146,9 @@ export const menusRelations = relations(menus, ({ one, many }) => ({
 }));
 
 export const menuDaySlotsRelations = relations(menuDaySlots, ({ one, many }) => ({
-  menu: one(menus, {
-    fields: [menuDaySlots.menuId],
-    references: [menus.id],
+  chef: one(chefProfiles, {
+    fields: [menuDaySlots.chefId],
+    references: [chefProfiles.id],
   }),
   itemAssignments: many(menuItemAssignments),
 }));
@@ -284,11 +285,14 @@ export type MenuWithDaySlots = Menu & {
   daySlots: DaySlotWithItems[];
 };
 
-export type ChefProfileWithMenus = ChefProfile & {
-  menus: MenuWithDaySlots[];
+export type ChefProfileWithDaySlots = ChefProfile & {
+  daySlots: DaySlotWithItems[];
   menuItems?: MenuItemWithDetails[];
   distance?: number;
 };
+
+// Keep for backwards compatibility during transition
+export type ChefProfileWithMenus = ChefProfileWithDaySlots;
 
 export type OrderWithItems = Order & {
   items: (OrderItem & { menuItem?: MenuItem })[];
