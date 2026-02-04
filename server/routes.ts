@@ -61,8 +61,7 @@ export async function registerRoutes(
     chefId: z.number(),
     title: z.string().min(2),
     description: z.string().optional(),
-    orderCutoffDate: z.string().optional(),
-    fulfillmentDate: z.string().optional(),
+    weekStartDate: z.string(), // Required: the Monday of the week
     status: z.enum(["draft", "active", "archived"]).default("draft"),
   });
 
@@ -87,8 +86,7 @@ export async function registerRoutes(
         chefId: data.chefId,
         title: data.title,
         description: data.description,
-        orderCutoffDate: data.orderCutoffDate ? new Date(data.orderCutoffDate) : null,
-        fulfillmentDate: data.fulfillmentDate ? new Date(data.fulfillmentDate) : null,
+        weekStartDate: new Date(data.weekStartDate),
         status: data.status,
       });
       res.status(201).json(menu);
@@ -104,8 +102,7 @@ export async function registerRoutes(
   const updateMenuSchema = z.object({
     title: z.string().min(2).optional(),
     description: z.string().optional(),
-    orderCutoffDate: z.string().optional().nullable(),
-    fulfillmentDate: z.string().optional().nullable(),
+    weekStartDate: z.string().optional(),
     status: z.enum(["draft", "active", "archived"]).optional(),
   });
 
@@ -117,8 +114,7 @@ export async function registerRoutes(
       }
       const validated = updateMenuSchema.parse(req.body);
       const data: any = { ...validated };
-      if (data.orderCutoffDate) data.orderCutoffDate = new Date(data.orderCutoffDate);
-      if (data.fulfillmentDate) data.fulfillmentDate = new Date(data.fulfillmentDate);
+      if (data.weekStartDate) data.weekStartDate = new Date(data.weekStartDate);
       const menu = await storage.updateMenu(menuId, data);
       if (!menu) {
         return res.status(404).json({ error: "Menu not found" });
@@ -147,6 +143,122 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error deleting menu:", error);
       res.status(500).json({ error: "Failed to delete menu" });
+    }
+  });
+
+  // Day Slot CRUD
+  const createDaySlotSchema = z.object({
+    menuId: z.number(),
+    date: z.string(),
+    orderCutoffDate: z.string(),
+  });
+
+  app.get("/api/menus/:menuId/day-slots", async (req, res) => {
+    try {
+      const menuId = parseInt(req.params.menuId);
+      if (isNaN(menuId)) {
+        return res.status(400).json({ error: "Invalid menu ID" });
+      }
+      const daySlots = await storage.getDaySlotsByMenuId(menuId);
+      res.json(daySlots);
+    } catch (error) {
+      console.error("Error fetching day slots:", error);
+      res.status(500).json({ error: "Failed to fetch day slots" });
+    }
+  });
+
+  app.post("/api/day-slots", async (req, res) => {
+    try {
+      const data = createDaySlotSchema.parse(req.body);
+      const daySlot = await storage.createDaySlot({
+        menuId: data.menuId,
+        date: new Date(data.date),
+        orderCutoffDate: new Date(data.orderCutoffDate),
+      });
+      res.status(201).json(daySlot);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid data", details: error.errors });
+      }
+      console.error("Error creating day slot:", error);
+      res.status(500).json({ error: "Failed to create day slot" });
+    }
+  });
+
+  const updateDaySlotSchema = z.object({
+    date: z.string().optional(),
+    orderCutoffDate: z.string().optional(),
+  });
+
+  app.patch("/api/day-slots/:daySlotId", async (req, res) => {
+    try {
+      const daySlotId = parseInt(req.params.daySlotId);
+      if (isNaN(daySlotId)) {
+        return res.status(400).json({ error: "Invalid day slot ID" });
+      }
+      const validated = updateDaySlotSchema.parse(req.body);
+      const data: any = { ...validated };
+      if (data.date) data.date = new Date(data.date);
+      if (data.orderCutoffDate) data.orderCutoffDate = new Date(data.orderCutoffDate);
+      const daySlot = await storage.updateDaySlot(daySlotId, data);
+      if (!daySlot) {
+        return res.status(404).json({ error: "Day slot not found" });
+      }
+      res.json(daySlot);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid data", details: error.errors });
+      }
+      console.error("Error updating day slot:", error);
+      res.status(500).json({ error: "Failed to update day slot" });
+    }
+  });
+
+  app.delete("/api/day-slots/:daySlotId", async (req, res) => {
+    try {
+      const daySlotId = parseInt(req.params.daySlotId);
+      if (isNaN(daySlotId)) {
+        return res.status(400).json({ error: "Invalid day slot ID" });
+      }
+      const deleted = await storage.deleteDaySlot(daySlotId);
+      if (!deleted) {
+        return res.status(404).json({ error: "Day slot not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting day slot:", error);
+      res.status(500).json({ error: "Failed to delete day slot" });
+    }
+  });
+
+  // Item assignment to day slots
+  app.post("/api/day-slots/:daySlotId/items/:itemId", async (req, res) => {
+    try {
+      const daySlotId = parseInt(req.params.daySlotId);
+      const itemId = parseInt(req.params.itemId);
+      if (isNaN(daySlotId) || isNaN(itemId)) {
+        return res.status(400).json({ error: "Invalid day slot or item ID" });
+      }
+      await storage.assignItemToDaySlot(daySlotId, itemId);
+      res.status(201).json({ message: "Item assigned to day slot" });
+    } catch (error) {
+      console.error("Error assigning item to day slot:", error);
+      res.status(500).json({ error: "Failed to assign item to day slot" });
+    }
+  });
+
+  app.delete("/api/day-slots/:daySlotId/items/:itemId", async (req, res) => {
+    try {
+      const daySlotId = parseInt(req.params.daySlotId);
+      const itemId = parseInt(req.params.itemId);
+      if (isNaN(daySlotId) || isNaN(itemId)) {
+        return res.status(400).json({ error: "Invalid day slot or item ID" });
+      }
+      await storage.removeItemFromDaySlot(daySlotId, itemId);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error removing item from day slot:", error);
+      res.status(500).json({ error: "Failed to remove item from day slot" });
     }
   });
 
@@ -278,36 +390,6 @@ export async function registerRoutes(
     }
   });
 
-  // Menu-Item Assignments
-  app.post("/api/menus/:menuId/items/:itemId", async (req, res) => {
-    try {
-      const menuId = parseInt(req.params.menuId);
-      const itemId = parseInt(req.params.itemId);
-      if (isNaN(menuId) || isNaN(itemId)) {
-        return res.status(400).json({ error: "Invalid IDs" });
-      }
-      await storage.assignItemToMenu(menuId, itemId);
-      res.status(201).json({ success: true });
-    } catch (error) {
-      console.error("Error assigning item to menu:", error);
-      res.status(500).json({ error: "Failed to assign item to menu" });
-    }
-  });
-
-  app.delete("/api/menus/:menuId/items/:itemId", async (req, res) => {
-    try {
-      const menuId = parseInt(req.params.menuId);
-      const itemId = parseInt(req.params.itemId);
-      if (isNaN(menuId) || isNaN(itemId)) {
-        return res.status(400).json({ error: "Invalid IDs" });
-      }
-      await storage.removeItemFromMenu(menuId, itemId);
-      res.status(204).send();
-    } catch (error) {
-      console.error("Error removing item from menu:", error);
-      res.status(500).json({ error: "Failed to remove item from menu" });
-    }
-  });
 
   const createOrderSchema = z.object({
     chefId: z.number(),

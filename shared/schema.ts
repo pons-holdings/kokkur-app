@@ -25,15 +25,22 @@ export const chefProfiles = pgTable("chef_profiles", {
   deliveryFee: real("delivery_fee").default(0),
 });
 
-// Menus
+// Menus (represents a week of offerings)
 export const menus = pgTable("menus", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   chefId: integer("chef_id").notNull().references(() => chefProfiles.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   description: text("description"),
-  orderCutoffDate: timestamp("order_cutoff_date"),
-  fulfillmentDate: timestamp("fulfillment_date"),
+  weekStartDate: timestamp("week_start_date").notNull(), // Monday of the week
   status: menuStatusEnum("status").notNull().default("draft"),
+});
+
+// Menu Day Slots (individual days within a menu week)
+export const menuDaySlots = pgTable("menu_day_slots", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  menuId: integer("menu_id").notNull().references(() => menus.id, { onDelete: "cascade" }),
+  date: timestamp("date").notNull(), // The actual date for this slot
+  orderCutoffDate: timestamp("order_cutoff_date").notNull(), // Cutoff for ordering this day's items
 });
 
 // Menu Items (belong to chef, can be assigned to multiple menus)
@@ -48,12 +55,12 @@ export const menuItems = pgTable("menu_items", {
   unitType: text("unit_type").notNull().default("per meal"),
 });
 
-// Menu Item Assignments (many-to-many: items can be on multiple menus)
+// Menu Item Assignments (many-to-many: items assigned to specific day slots)
 export const menuItemAssignments = pgTable("menu_item_assignments", {
-  menuId: integer("menu_id").notNull().references(() => menus.id, { onDelete: "cascade" }),
+  daySlotId: integer("day_slot_id").notNull().references(() => menuDaySlots.id, { onDelete: "cascade" }),
   menuItemId: integer("menu_item_id").notNull().references(() => menuItems.id, { onDelete: "cascade" }),
 }, (table) => ({
-  pk: primaryKey({ columns: [table.menuId, table.menuItemId] }),
+  pk: primaryKey({ columns: [table.daySlotId, table.menuItemId] }),
 }));
 
 // Ingredients
@@ -133,6 +140,14 @@ export const menusRelations = relations(menus, ({ one, many }) => ({
     fields: [menus.chefId],
     references: [chefProfiles.id],
   }),
+  daySlots: many(menuDaySlots),
+}));
+
+export const menuDaySlotsRelations = relations(menuDaySlots, ({ one, many }) => ({
+  menu: one(menus, {
+    fields: [menuDaySlots.menuId],
+    references: [menus.id],
+  }),
   itemAssignments: many(menuItemAssignments),
 }));
 
@@ -148,9 +163,9 @@ export const menuItemsRelations = relations(menuItems, ({ one, many }) => ({
 }));
 
 export const menuItemAssignmentsRelations = relations(menuItemAssignments, ({ one }) => ({
-  menu: one(menus, {
-    fields: [menuItemAssignments.menuId],
-    references: [menus.id],
+  daySlot: one(menuDaySlots, {
+    fields: [menuItemAssignments.daySlotId],
+    references: [menuDaySlots.id],
   }),
   menuItem: one(menuItems, {
     fields: [menuItemAssignments.menuItemId],
@@ -217,6 +232,7 @@ export const userFavoritesRelations = relations(userFavorites, ({ one }) => ({
 // Insert Schemas
 export const insertChefProfileSchema = createInsertSchema(chefProfiles).omit({ id: true });
 export const insertMenuSchema = createInsertSchema(menus).omit({ id: true });
+export const insertMenuDaySlotSchema = createInsertSchema(menuDaySlots).omit({ id: true });
 export const insertMenuItemSchema = createInsertSchema(menuItems).omit({ id: true });
 export const insertMenuItemAssignmentSchema = createInsertSchema(menuItemAssignments);
 export const insertIngredientSchema = createInsertSchema(ingredients).omit({ id: true });
@@ -232,6 +248,8 @@ export type ChefProfile = typeof chefProfiles.$inferSelect;
 export type InsertChefProfile = z.infer<typeof insertChefProfileSchema>;
 export type Menu = typeof menus.$inferSelect;
 export type InsertMenu = z.infer<typeof insertMenuSchema>;
+export type MenuDaySlot = typeof menuDaySlots.$inferSelect;
+export type InsertMenuDaySlot = z.infer<typeof insertMenuDaySlotSchema>;
 export type MenuItem = typeof menuItems.$inferSelect;
 export type InsertMenuItem = z.infer<typeof insertMenuItemSchema>;
 export type Ingredient = typeof ingredients.$inferSelect;
@@ -257,12 +275,16 @@ export type MenuItemWithDetails = MenuItem & {
   allergens: Allergen[];
 };
 
-export type MenuWithItems = Menu & {
+export type DaySlotWithItems = MenuDaySlot & {
   items: MenuItemWithDetails[];
 };
 
+export type MenuWithDaySlots = Menu & {
+  daySlots: DaySlotWithItems[];
+};
+
 export type ChefProfileWithMenus = ChefProfile & {
-  menus: MenuWithItems[];
+  menus: MenuWithDaySlots[];
   menuItems?: MenuItemWithDetails[];
   distance?: number;
 };

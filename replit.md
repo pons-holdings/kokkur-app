@@ -29,8 +29,17 @@ Preferred communication style: Simple, everyday language.
 - **Database**: PostgreSQL with Drizzle ORM
 - **Schema Location**: `shared/schema.ts` - shared between client and server
 - **Migrations**: Drizzle Kit with migrations output to `/migrations`
-- **Key Entities**: ChefProfiles, Menus, MenuItems, Ingredients, Allergens, Orders, OrderItems, UserFavorites
-- **Join Tables**: ItemIngredients and ItemAllergens for many-to-many relationships
+- **Key Entities**: ChefProfiles, Menus, MenuDaySlots, MenuItems, Ingredients, Allergens, Orders, OrderItems, UserFavorites
+- **Join Tables**: ItemIngredients, ItemAllergens, and MenuItemAssignments for many-to-many relationships
+
+### Menu Structure (Day-Based)
+- **Menus are Week-Based**: Each menu has a `weekStartDate` representing the Monday of that week
+- **Day Slots**: Menus contain `menu_day_slots` - specific days within the week when food is offered
+  - Each day slot has a `date` (fulfillment date) and `orderCutoffDate` (last day to order)
+- **Item Assignments**: Menu items are assigned to specific day slots via `menu_item_assignments` table
+  - Items can be assigned to multiple days across different menus
+  - Chef's food items remain separate entities owned by the chef
+- **Dashboard Management**: Chefs manage day slots through "Manage Days" dialog, then assign items to each day
 
 ### Geo-Location Features
 - **Distance Calculations**: geolib library for calculating distances between users and chefs

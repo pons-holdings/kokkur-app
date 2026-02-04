@@ -75,43 +75,51 @@ export default function Home() {
     }
 
     if (excludedAllergens.length > 0) {
-      result = result.map((chef) => {
-        const filteredMenus = chef.menus?.map((menu) => ({
+      result = result.map((chef: any) => {
+        const filteredMenus = chef.menus?.map((menu: any) => ({
           ...menu,
-          items: menu.items?.filter((item) => {
-            const itemAllergenIds = item.allergens?.map((a) => a.id) || [];
-            return !excludedAllergens.some((excluded) =>
-              itemAllergenIds.includes(excluded)
-            );
-          }),
+          daySlots: menu.daySlots?.map((slot: any) => ({
+            ...slot,
+            items: slot.items?.filter((item: any) => {
+              const itemAllergenIds = item.allergens?.map((a: any) => a.id) || [];
+              return !excludedAllergens.some((excluded) =>
+                itemAllergenIds.includes(excluded)
+              );
+            }),
+          })),
         }));
         return { ...chef, menus: filteredMenus };
       });
 
-      result = result.filter((chef) =>
-        chef.menus?.some((menu) => (menu.items?.length || 0) > 0)
+      result = result.filter((chef: any) =>
+        chef.menus?.some((menu: any) => 
+          menu.daySlots?.some((slot: any) => (slot.items?.length || 0) > 0)
+        )
       );
     }
 
     // Apply search filter
     if (searchLower) {
-      result = result.map((chef) => {
+      result = result.map((chef: any) => {
         // Check if chef name or cuisine tags match
         const chefNameMatch = chef.name.toLowerCase().includes(searchLower);
-        const cuisineMatch = chef.cuisineTags?.some((tag) =>
+        const cuisineMatch = chef.cuisineTags?.some((tag: string) =>
           tag.toLowerCase().includes(searchLower)
         );
 
-        // Filter menu items by search query
-        const filteredMenus = chef.menus?.map((menu) => ({
+        // Filter menu items by search query (within day slots)
+        const filteredMenus = chef.menus?.map((menu: any) => ({
           ...menu,
-          items: menu.items?.filter((item) =>
-            item.title.toLowerCase().includes(searchLower) ||
-            item.description?.toLowerCase().includes(searchLower) ||
-            item.ingredients?.some((ing) => 
-              ing.name.toLowerCase().includes(searchLower)
-            )
-          ),
+          daySlots: menu.daySlots?.map((slot: any) => ({
+            ...slot,
+            items: slot.items?.filter((item: any) =>
+              item.title.toLowerCase().includes(searchLower) ||
+              item.description?.toLowerCase().includes(searchLower) ||
+              item.ingredients?.some((ing: any) => 
+                ing.name.toLowerCase().includes(searchLower)
+              )
+            ),
+          })),
         }));
 
         // If chef name or cuisine matches, keep all items
@@ -124,13 +132,13 @@ export default function Home() {
       });
 
       // Filter out chefs with no matching content
-      result = result.filter((chef) => {
+      result = result.filter((chef: any) => {
         const chefNameMatch = chef.name.toLowerCase().includes(searchLower);
-        const cuisineMatch = chef.cuisineTags?.some((tag) =>
+        const cuisineMatch = chef.cuisineTags?.some((tag: string) =>
           tag.toLowerCase().includes(searchLower)
         );
-        const hasMatchingItems = chef.menus?.some((menu) => 
-          (menu.items?.length || 0) > 0
+        const hasMatchingItems = chef.menus?.some((menu: any) => 
+          menu.daySlots?.some((slot: any) => (slot.items?.length || 0) > 0)
         );
 
         return chefNameMatch || cuisineMatch || hasMatchingItems;
@@ -147,30 +155,32 @@ export default function Home() {
     if (!searchLower || !filteredChefs.length) return null;
 
     const matchingItems: Array<{
-      chef: ChefProfileWithMenus;
-      item: NonNullable<NonNullable<ChefProfileWithMenus['menus']>[0]['items']>[0];
+      chef: any;
+      item: any;
       menuTitle: string;
-      fulfillmentDate: Date | string | null;
+      dayDate: Date | string | null;
     }> = [];
 
-    filteredChefs.forEach((chef) => {
-      chef.menus?.forEach((menu) => {
-        menu.items?.forEach((item) => {
-          const itemMatches = 
-            item.title.toLowerCase().includes(searchLower) ||
-            item.description?.toLowerCase().includes(searchLower) ||
-            item.ingredients?.some((ing) => 
-              ing.name.toLowerCase().includes(searchLower)
-            );
-          
-          if (itemMatches) {
-            matchingItems.push({
-              chef,
-              item,
-              menuTitle: menu.title,
-              fulfillmentDate: menu.fulfillmentDate,
-            });
-          }
+    filteredChefs.forEach((chef: any) => {
+      chef.menus?.forEach((menu: any) => {
+        menu.daySlots?.forEach((slot: any) => {
+          slot.items?.forEach((item: any) => {
+            const itemMatches = 
+              item.title.toLowerCase().includes(searchLower) ||
+              item.description?.toLowerCase().includes(searchLower) ||
+              item.ingredients?.some((ing: any) => 
+                ing.name.toLowerCase().includes(searchLower)
+              );
+            
+            if (itemMatches) {
+              matchingItems.push({
+                chef,
+                item,
+                menuTitle: menu.title,
+                dayDate: slot.date,
+              });
+            }
+          });
         });
       });
     });

@@ -1,8 +1,9 @@
 import { 
-  chefProfiles, menus, menuItems, menuItemAssignments, ingredients, allergens,
+  chefProfiles, menus, menuDaySlots, menuItems, menuItemAssignments, ingredients, allergens,
   itemIngredients, itemAllergens, orders, orderItems, userFavorites,
   type ChefProfile, type InsertChefProfile,
   type Menu, type InsertMenu,
+  type MenuDaySlot, type InsertMenuDaySlot,
   type MenuItem, type InsertMenuItem,
   type MenuItemAssignment, type InsertMenuItemAssignment,
   type Ingredient, type InsertIngredient,
@@ -10,7 +11,7 @@ import {
   type Order, type InsertOrder,
   type OrderItem, type InsertOrderItem,
   type InsertItemIngredient, type InsertItemAllergen,
-  type MenuItemWithDetails, type MenuWithItems, type ChefProfileWithMenus, type OrderWithItems
+  type MenuItemWithDetails, type DaySlotWithItems, type MenuWithDaySlots, type ChefProfileWithMenus, type OrderWithItems
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, inArray, sql } from "drizzle-orm";
@@ -23,13 +24,20 @@ export interface IStorage {
   createChef(chef: InsertChefProfile): Promise<ChefProfile>;
 
   // Menus
-  getMenusByChefId(chefId: number): Promise<MenuWithItems[]>;
+  getMenusByChefId(chefId: number): Promise<MenuWithDaySlots[]>;
   getMenuById(id: number): Promise<Menu | undefined>;
   createMenu(menu: InsertMenu): Promise<Menu>;
   updateMenu(id: number, menu: Partial<InsertMenu>): Promise<Menu | undefined>;
   deleteMenu(id: number): Promise<boolean>;
 
-  // Menu Items (belong to chef, can be assigned to multiple menus)
+  // Day Slots
+  getDaySlotsByMenuId(menuId: number): Promise<DaySlotWithItems[]>;
+  getDaySlotById(id: number): Promise<MenuDaySlot | undefined>;
+  createDaySlot(slot: InsertMenuDaySlot): Promise<MenuDaySlot>;
+  updateDaySlot(id: number, slot: Partial<InsertMenuDaySlot>): Promise<MenuDaySlot | undefined>;
+  deleteDaySlot(id: number): Promise<boolean>;
+
+  // Menu Items (belong to chef, can be assigned to multiple day slots)
   getMenuItemsByChefId(chefId: number): Promise<MenuItemWithDetails[]>;
   getMenuItemById(id: number): Promise<MenuItemWithDetails | undefined>;
   createMenuItem(item: InsertMenuItem): Promise<MenuItem>;
@@ -41,10 +49,10 @@ export interface IStorage {
   clearItemIngredients(menuItemId: number): Promise<void>;
   clearItemAllergens(menuItemId: number): Promise<void>;
 
-  // Menu-Item Assignments (many-to-many)
-  assignItemToMenu(menuId: number, menuItemId: number): Promise<void>;
-  removeItemFromMenu(menuId: number, menuItemId: number): Promise<void>;
-  getItemsForMenu(menuId: number): Promise<MenuItemWithDetails[]>;
+  // Day Slot-Item Assignments (many-to-many)
+  assignItemToDaySlot(daySlotId: number, menuItemId: number): Promise<void>;
+  removeItemFromDaySlot(daySlotId: number, menuItemId: number): Promise<void>;
+  getItemsForDaySlot(daySlotId: number): Promise<MenuItemWithDetails[]>;
 
   // Ingredients & Allergens
   getIngredients(): Promise<Ingredient[]>;
@@ -96,17 +104,17 @@ export class DatabaseStorage implements IStorage {
     return newChef;
   }
 
-  async getMenusByChefId(chefId: number): Promise<MenuWithItems[]> {
+  async getMenusByChefId(chefId: number): Promise<MenuWithDaySlots[]> {
     const menusData = await db.select().from(menus).where(eq(menus.chefId, chefId));
     
-    const menusWithItems = await Promise.all(
+    const menusWithDaySlots = await Promise.all(
       menusData.map(async (menu) => {
-        const itemsWithDetails = await this.getItemsForMenu(menu.id);
-        return { ...menu, items: itemsWithDetails };
+        const daySlots = await this.getDaySlotsByMenuId(menu.id);
+        return { ...menu, daySlots };
       })
     );
     
-    return menusWithItems;
+    return menusWithDaySlots;
   }
 
   async getMenuById(id: number): Promise<Menu | undefined> {
@@ -204,25 +212,60 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
-  async assignItemToMenu(menuId: number, menuItemId: number): Promise<void> {
-    await db.insert(menuItemAssignments).values({ menuId, menuItemId }).onConflictDoNothing();
+  // Day Slot methods
+  async getDaySlotsByMenuId(menuId: number): Promise<DaySlotWithItems[]> {
+    const slots = await db.select().from(menuDaySlots).where(eq(menuDaySlots.menuId, menuId));
+    
+    const slotsWithItems = await Promise.all(
+      slots.map(async (slot) => {
+        const items = await this.getItemsForDaySlot(slot.id);
+        return { ...slot, items };
+      })
+    );
+    
+    return slotsWithItems;
   }
 
-  async removeItemFromMenu(menuId: number, menuItemId: number): Promise<void> {
+  async getDaySlotById(id: number): Promise<MenuDaySlot | undefined> {
+    const [slot] = await db.select().from(menuDaySlots).where(eq(menuDaySlots.id, id));
+    return slot || undefined;
+  }
+
+  async createDaySlot(slot: InsertMenuDaySlot): Promise<MenuDaySlot> {
+    const [newSlot] = await db.insert(menuDaySlots).values(slot).returning();
+    return newSlot;
+  }
+
+  async updateDaySlot(id: number, slot: Partial<InsertMenuDaySlot>): Promise<MenuDaySlot | undefined> {
+    const [updated] = await db.update(menuDaySlots).set(slot).where(eq(menuDaySlots.id, id)).returning();
+    return updated;
+  }
+
+  async deleteDaySlot(id: number): Promise<boolean> {
+    const result = await db.delete(menuDaySlots).where(eq(menuDaySlots.id, id)).returning();
+    return result.length > 0;
+  }
+
+  // Item assignments to day slots
+  async assignItemToDaySlot(daySlotId: number, menuItemId: number): Promise<void> {
+    await db.insert(menuItemAssignments).values({ daySlotId, menuItemId }).onConflictDoNothing();
+  }
+
+  async removeItemFromDaySlot(daySlotId: number, menuItemId: number): Promise<void> {
     await db.delete(menuItemAssignments).where(
       and(
-        eq(menuItemAssignments.menuId, menuId),
+        eq(menuItemAssignments.daySlotId, daySlotId),
         eq(menuItemAssignments.menuItemId, menuItemId)
       )
     );
   }
 
-  async getItemsForMenu(menuId: number): Promise<MenuItemWithDetails[]> {
+  async getItemsForDaySlot(daySlotId: number): Promise<MenuItemWithDetails[]> {
     const result = await db
       .select({ menuItem: menuItems })
       .from(menuItemAssignments)
       .innerJoin(menuItems, eq(menuItemAssignments.menuItemId, menuItems.id))
-      .where(eq(menuItemAssignments.menuId, menuId));
+      .where(eq(menuItemAssignments.daySlotId, daySlotId));
     
     const itemsWithDetails = await Promise.all(
       result.map(async (r) => {
@@ -388,8 +431,19 @@ export class DatabaseStorage implements IStorage {
       title: "Week of February 3rd",
       description: "Fresh winter menu featuring hearty Mexican comfort food",
       status: "active",
-      orderCutoffDate: new Date("2026-02-05"),
-      fulfillmentDate: new Date("2026-02-07"),
+      weekStartDate: new Date("2026-02-03"),
+    });
+
+    // Create day slots for menu1 (multiple days in the week)
+    const daySlot1_1 = await this.createDaySlot({
+      menuId: menu1.id,
+      date: new Date("2026-02-05"),
+      orderCutoffDate: new Date("2026-02-04"),
+    });
+    const daySlot1_2 = await this.createDaySlot({
+      menuId: menu1.id,
+      date: new Date("2026-02-07"),
+      orderCutoffDate: new Date("2026-02-06"),
     });
 
     const menu2 = await this.createMenu({
@@ -397,8 +451,14 @@ export class DatabaseStorage implements IStorage {
       title: "Sunday Feast Menu",
       description: "Traditional Italian family-style dishes",
       status: "active",
+      weekStartDate: new Date("2026-02-03"),
+    });
+
+    // Create day slot for menu2
+    const daySlot2 = await this.createDaySlot({
+      menuId: menu2.id,
+      date: new Date("2026-02-08"),
       orderCutoffDate: new Date("2026-02-06"),
-      fulfillmentDate: new Date("2026-02-08"),
     });
 
     const menu3 = await this.createMenu({
@@ -406,8 +466,19 @@ export class DatabaseStorage implements IStorage {
       title: "Lunar New Year Special",
       description: "Celebrate with authentic Asian flavors",
       status: "active",
+      weekStartDate: new Date("2026-02-03"),
+    });
+
+    // Create day slots for menu3
+    const daySlot3_1 = await this.createDaySlot({
+      menuId: menu3.id,
+      date: new Date("2026-02-06"),
       orderCutoffDate: new Date("2026-02-04"),
-      fulfillmentDate: new Date("2026-02-06"),
+    });
+    const daySlot3_2 = await this.createDaySlot({
+      menuId: menu3.id,
+      date: new Date("2026-02-08"),
+      orderCutoffDate: new Date("2026-02-06"),
     });
 
     const findAllergen = (name: string) => createdAllergens.find((a) => a.name === name)?.id || 0;
@@ -424,7 +495,8 @@ export class DatabaseStorage implements IStorage {
     });
     await this.addItemAllergens(item1.id, [findAllergen("Milk")]);
     await this.addItemIngredients(item1.id, [findIngredient("Chicken"), findIngredient("Cheese"), findIngredient("Onions"), findIngredient("Rice")]);
-    await this.assignItemToMenu(menu1.id, item1.id);
+    await this.assignItemToDaySlot(daySlot1_1.id, item1.id);
+    await this.assignItemToDaySlot(daySlot1_2.id, item1.id);
 
     const item2 = await this.createMenuItem({
       chefId: chef1.id,
@@ -436,7 +508,7 @@ export class DatabaseStorage implements IStorage {
     });
     await this.addItemAllergens(item2.id, [findAllergen("Milk")]);
     await this.addItemIngredients(item2.id, [findIngredient("Cheese"), findIngredient("Bell Peppers")]);
-    await this.assignItemToMenu(menu1.id, item2.id);
+    await this.assignItemToDaySlot(daySlot1_1.id, item2.id);
 
     const item3 = await this.createMenuItem({
       chefId: chef1.id,
@@ -447,7 +519,7 @@ export class DatabaseStorage implements IStorage {
       unitType: "per platter",
     });
     await this.addItemIngredients(item3.id, [findIngredient("Pork"), findIngredient("Onions"), findIngredient("Garlic")]);
-    await this.assignItemToMenu(menu1.id, item3.id);
+    await this.assignItemToDaySlot(daySlot1_2.id, item3.id);
 
     // Chef 2's items
     const item4 = await this.createMenuItem({
@@ -460,7 +532,7 @@ export class DatabaseStorage implements IStorage {
     });
     await this.addItemAllergens(item4.id, [findAllergen("Milk"), findAllergen("Eggs"), findAllergen("Wheat")]);
     await this.addItemIngredients(item4.id, [findIngredient("Beef"), findIngredient("Pasta"), findIngredient("Cheese"), findIngredient("Tomatoes")]);
-    await this.assignItemToMenu(menu2.id, item4.id);
+    await this.assignItemToDaySlot(daySlot2.id, item4.id);
 
     const item5 = await this.createMenuItem({
       chefId: chef2.id,
@@ -472,7 +544,7 @@ export class DatabaseStorage implements IStorage {
     });
     await this.addItemAllergens(item5.id, [findAllergen("Milk"), findAllergen("Eggs"), findAllergen("Wheat")]);
     await this.addItemIngredients(item5.id, [findIngredient("Pasta"), findIngredient("Butter"), findIngredient("Cream"), findIngredient("Cheese")]);
-    await this.assignItemToMenu(menu2.id, item5.id);
+    await this.assignItemToDaySlot(daySlot2.id, item5.id);
 
     const item6 = await this.createMenuItem({
       chefId: chef2.id,
@@ -484,7 +556,7 @@ export class DatabaseStorage implements IStorage {
     });
     await this.addItemAllergens(item6.id, [findAllergen("Milk"), findAllergen("Eggs"), findAllergen("Wheat")]);
     await this.addItemIngredients(item6.id, [findIngredient("Chicken"), findIngredient("Pasta"), findIngredient("Tomatoes"), findIngredient("Cheese")]);
-    await this.assignItemToMenu(menu2.id, item6.id);
+    await this.assignItemToDaySlot(daySlot2.id, item6.id);
 
     const item7 = await this.createMenuItem({
       chefId: chef2.id,
@@ -495,7 +567,7 @@ export class DatabaseStorage implements IStorage {
       unitType: "per piece",
     });
     await this.addItemAllergens(item7.id, [findAllergen("Milk"), findAllergen("Eggs"), findAllergen("Wheat")]);
-    await this.assignItemToMenu(menu2.id, item7.id);
+    await this.assignItemToDaySlot(daySlot2.id, item7.id);
 
     // Chef 3's items
     const item8 = await this.createMenuItem({
@@ -508,7 +580,8 @@ export class DatabaseStorage implements IStorage {
     });
     await this.addItemAllergens(item8.id, [findAllergen("Fish"), findAllergen("Soy"), findAllergen("Sesame")]);
     await this.addItemIngredients(item8.id, [findIngredient("Salmon"), findIngredient("Rice"), findIngredient("Carrots")]);
-    await this.assignItemToMenu(menu3.id, item8.id);
+    await this.assignItemToDaySlot(daySlot3_1.id, item8.id);
+    await this.assignItemToDaySlot(daySlot3_2.id, item8.id);
 
     const item9 = await this.createMenuItem({
       chefId: chef3.id,
@@ -520,7 +593,7 @@ export class DatabaseStorage implements IStorage {
     });
     await this.addItemAllergens(item9.id, [findAllergen("Shellfish"), findAllergen("Peanuts"), findAllergen("Soy"), findAllergen("Eggs")]);
     await this.addItemIngredients(item9.id, [findIngredient("Shrimp"), findIngredient("Tofu"), findIngredient("Rice")]);
-    await this.assignItemToMenu(menu3.id, item9.id);
+    await this.assignItemToDaySlot(daySlot3_1.id, item9.id);
 
     const item10 = await this.createMenuItem({
       chefId: chef3.id,
@@ -532,7 +605,8 @@ export class DatabaseStorage implements IStorage {
     });
     await this.addItemAllergens(item10.id, [findAllergen("Soy")]);
     await this.addItemIngredients(item10.id, [findIngredient("Chicken"), findIngredient("Coconut Milk"), findIngredient("Rice"), findIngredient("Broccoli")]);
-    await this.assignItemToMenu(menu3.id, item10.id);
+    await this.assignItemToDaySlot(daySlot3_1.id, item10.id);
+    await this.assignItemToDaySlot(daySlot3_2.id, item10.id);
 
     const item11 = await this.createMenuItem({
       chefId: chef3.id,
@@ -544,7 +618,7 @@ export class DatabaseStorage implements IStorage {
     });
     await this.addItemAllergens(item11.id, [findAllergen("Wheat"), findAllergen("Soy")]);
     await this.addItemIngredients(item11.id, [findIngredient("Carrots")]);
-    await this.assignItemToMenu(menu3.id, item11.id);
+    await this.assignItemToDaySlot(daySlot3_2.id, item11.id);
 
     const item12 = await this.createMenuItem({
       chefId: chef3.id,
@@ -556,7 +630,8 @@ export class DatabaseStorage implements IStorage {
     });
     await this.addItemAllergens(item12.id, [findAllergen("Soy")]);
     await this.addItemIngredients(item12.id, [findIngredient("Tofu"), findIngredient("Quinoa"), findIngredient("Broccoli"), findIngredient("Carrots")]);
-    await this.assignItemToMenu(menu3.id, item12.id);
+    await this.assignItemToDaySlot(daySlot3_1.id, item12.id);
+    await this.assignItemToDaySlot(daySlot3_2.id, item12.id);
 
     console.log("Database seeded successfully!");
   }
