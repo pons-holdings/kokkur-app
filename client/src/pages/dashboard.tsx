@@ -70,7 +70,7 @@ import {
 import { Header } from "@/components/header";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { ChefProfileWithMenus, Allergen, Ingredient, OrderWithItems, Menu, MenuItem } from "@shared/schema";
+import type { ChefProfileWithDaySlots, Allergen, Ingredient, OrderWithItems, MenuItem } from "@shared/schema";
 
 const menuItemSchema = z.object({
   chefId: z.number(),
@@ -85,17 +85,6 @@ const menuItemSchema = z.object({
 });
 
 type MenuItemForm = z.infer<typeof menuItemSchema>;
-
-const menuSchema = z.object({
-  chefId: z.number(),
-  title: z.string().min(2, "Title must be at least 2 characters"),
-  description: z.string().optional(),
-  startDate: z.string(),
-  endDate: z.string(),
-  status: z.enum(["draft", "active", "archived"]).default("draft"),
-});
-
-type MenuForm = z.infer<typeof menuSchema>;
 
 const daySlotSchema = z.object({
   chefId: z.number(),
@@ -138,7 +127,7 @@ export default function Dashboard() {
   const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set());
   const { toast } = useToast();
 
-  const { data: chefs, isLoading: chefsLoading } = useQuery<ChefProfileWithMenus[]>({
+  const { data: chefs, isLoading: chefsLoading } = useQuery<ChefProfileWithDaySlots[]>({
     queryKey: ["/api/chefs"],
   });
 

@@ -11,15 +11,15 @@ import {
   type Order, type InsertOrder,
   type OrderItem, type InsertOrderItem,
   type InsertItemIngredient, type InsertItemAllergen,
-  type MenuItemWithDetails, type DaySlotWithItems, type MenuWithDaySlots, type ChefProfileWithMenus, type OrderWithItems
+  type MenuItemWithDetails, type DaySlotWithItems, type MenuWithDaySlots, type ChefProfileWithDaySlots, type OrderWithItems
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, inArray, sql } from "drizzle-orm";
 
 export interface IStorage {
   // Chefs
-  getChefs(): Promise<ChefProfileWithMenus[]>;
-  getChefBySlug(slug: string): Promise<ChefProfileWithMenus | undefined>;
+  getChefs(): Promise<ChefProfileWithDaySlots[]>;
+  getChefBySlug(slug: string): Promise<ChefProfileWithDaySlots | undefined>;
   getChefById(id: number): Promise<ChefProfile | undefined>;
   createChef(chef: InsertChefProfile): Promise<ChefProfile>;
 
@@ -73,7 +73,7 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
-  async getChefs(): Promise<ChefProfileWithMenus[]> {
+  async getChefs(): Promise<ChefProfileWithDaySlots[]> {
     const chefsData = await db.select().from(chefProfiles);
     
     const chefsWithDaySlots = await Promise.all(
@@ -86,7 +86,7 @@ export class DatabaseStorage implements IStorage {
     return chefsWithDaySlots;
   }
 
-  async getChefBySlug(slug: string): Promise<ChefProfileWithMenus | undefined> {
+  async getChefBySlug(slug: string): Promise<ChefProfileWithDaySlots | undefined> {
     const [chef] = await db.select().from(chefProfiles).where(eq(chefProfiles.slug, slug));
     if (!chef) return undefined;
     
