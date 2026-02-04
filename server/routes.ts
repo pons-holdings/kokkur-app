@@ -56,8 +56,91 @@ export async function registerRoutes(
     }
   });
 
+  // Menu CRUD
+  const createMenuSchema = z.object({
+    chefId: z.number(),
+    title: z.string().min(2),
+    description: z.string().optional(),
+    orderCutoffDate: z.string().optional(),
+    fulfillmentDate: z.string().optional(),
+    status: z.enum(["draft", "active", "archived"]).default("draft"),
+  });
+
+  app.get("/api/menus/chef/:chefId", async (req, res) => {
+    try {
+      const chefId = parseInt(req.params.chefId);
+      if (isNaN(chefId)) {
+        return res.status(400).json({ error: "Invalid chef ID" });
+      }
+      const menus = await storage.getMenusByChefId(chefId);
+      res.json(menus);
+    } catch (error) {
+      console.error("Error fetching menus:", error);
+      res.status(500).json({ error: "Failed to fetch menus" });
+    }
+  });
+
+  app.post("/api/menus", async (req, res) => {
+    try {
+      const data = createMenuSchema.parse(req.body);
+      const menu = await storage.createMenu({
+        chefId: data.chefId,
+        title: data.title,
+        description: data.description,
+        orderCutoffDate: data.orderCutoffDate ? new Date(data.orderCutoffDate) : null,
+        fulfillmentDate: data.fulfillmentDate ? new Date(data.fulfillmentDate) : null,
+        status: data.status,
+      });
+      res.status(201).json(menu);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid data", details: error.errors });
+      }
+      console.error("Error creating menu:", error);
+      res.status(500).json({ error: "Failed to create menu" });
+    }
+  });
+
+  app.patch("/api/menus/:menuId", async (req, res) => {
+    try {
+      const menuId = parseInt(req.params.menuId);
+      if (isNaN(menuId)) {
+        return res.status(400).json({ error: "Invalid menu ID" });
+      }
+      const data = req.body;
+      if (data.orderCutoffDate) data.orderCutoffDate = new Date(data.orderCutoffDate);
+      if (data.fulfillmentDate) data.fulfillmentDate = new Date(data.fulfillmentDate);
+      const menu = await storage.updateMenu(menuId, data);
+      if (!menu) {
+        return res.status(404).json({ error: "Menu not found" });
+      }
+      res.json(menu);
+    } catch (error) {
+      console.error("Error updating menu:", error);
+      res.status(500).json({ error: "Failed to update menu" });
+    }
+  });
+
+  app.delete("/api/menus/:menuId", async (req, res) => {
+    try {
+      const menuId = parseInt(req.params.menuId);
+      if (isNaN(menuId)) {
+        return res.status(400).json({ error: "Invalid menu ID" });
+      }
+      const deleted = await storage.deleteMenu(menuId);
+      if (!deleted) {
+        return res.status(404).json({ error: "Menu not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting menu:", error);
+      res.status(500).json({ error: "Failed to delete menu" });
+    }
+  });
+
+  // Menu Items CRUD (items belong to chef, not menu)
   const createMenuItemSchema = z.object({
-    menuId: z.number(),
+    chefId: z.number(),
     title: z.string().min(2),
     description: z.string().optional(),
     price: z.number().min(0.01),
@@ -68,12 +151,26 @@ export async function registerRoutes(
     ingredientIds: z.array(z.number()).default([]),
   });
 
+  app.get("/api/menu-items/chef/:chefId", async (req, res) => {
+    try {
+      const chefId = parseInt(req.params.chefId);
+      if (isNaN(chefId)) {
+        return res.status(400).json({ error: "Invalid chef ID" });
+      }
+      const items = await storage.getMenuItemsByChefId(chefId);
+      res.json(items);
+    } catch (error) {
+      console.error("Error fetching menu items:", error);
+      res.status(500).json({ error: "Failed to fetch menu items" });
+    }
+  });
+
   app.post("/api/menu-items", async (req, res) => {
     try {
       const data = createMenuItemSchema.parse(req.body);
       
       const item = await storage.createMenuItem({
-        menuId: data.menuId,
+        chefId: data.chefId,
         title: data.title,
         description: data.description,
         price: data.price,
@@ -98,6 +195,91 @@ export async function registerRoutes(
       }
       console.error("Error creating menu item:", error);
       res.status(500).json({ error: "Failed to create menu item" });
+    }
+  });
+
+  app.patch("/api/menu-items/:itemId", async (req, res) => {
+    try {
+      const itemId = parseInt(req.params.itemId);
+      if (isNaN(itemId)) {
+        return res.status(400).json({ error: "Invalid item ID" });
+      }
+      
+      const data = req.body;
+      const { allergenIds, ingredientIds, ...itemData } = data;
+      
+      const item = await storage.updateMenuItem(itemId, itemData);
+      if (!item) {
+        return res.status(404).json({ error: "Menu item not found" });
+      }
+      
+      if (allergenIds !== undefined) {
+        await storage.clearItemAllergens(itemId);
+        if (allergenIds.length > 0) {
+          await storage.addItemAllergens(itemId, allergenIds);
+        }
+      }
+      
+      if (ingredientIds !== undefined) {
+        await storage.clearItemIngredients(itemId);
+        if (ingredientIds.length > 0) {
+          await storage.addItemIngredients(itemId, ingredientIds);
+        }
+      }
+      
+      const itemWithDetails = await storage.getMenuItemById(itemId);
+      res.json(itemWithDetails);
+    } catch (error) {
+      console.error("Error updating menu item:", error);
+      res.status(500).json({ error: "Failed to update menu item" });
+    }
+  });
+
+  app.delete("/api/menu-items/:itemId", async (req, res) => {
+    try {
+      const itemId = parseInt(req.params.itemId);
+      if (isNaN(itemId)) {
+        return res.status(400).json({ error: "Invalid item ID" });
+      }
+      const deleted = await storage.deleteMenuItem(itemId);
+      if (!deleted) {
+        return res.status(404).json({ error: "Menu item not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting menu item:", error);
+      res.status(500).json({ error: "Failed to delete menu item" });
+    }
+  });
+
+  // Menu-Item Assignments
+  app.post("/api/menus/:menuId/items/:itemId", async (req, res) => {
+    try {
+      const menuId = parseInt(req.params.menuId);
+      const itemId = parseInt(req.params.itemId);
+      if (isNaN(menuId) || isNaN(itemId)) {
+        return res.status(400).json({ error: "Invalid IDs" });
+      }
+      await storage.assignItemToMenu(menuId, itemId);
+      res.status(201).json({ success: true });
+    } catch (error) {
+      console.error("Error assigning item to menu:", error);
+      res.status(500).json({ error: "Failed to assign item to menu" });
+    }
+  });
+
+  app.delete("/api/menus/:menuId/items/:itemId", async (req, res) => {
+    try {
+      const menuId = parseInt(req.params.menuId);
+      const itemId = parseInt(req.params.itemId);
+      if (isNaN(menuId) || isNaN(itemId)) {
+        return res.status(400).json({ error: "Invalid IDs" });
+      }
+      await storage.removeItemFromMenu(menuId, itemId);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error removing item from menu:", error);
+      res.status(500).json({ error: "Failed to remove item from menu" });
     }
   });
 
