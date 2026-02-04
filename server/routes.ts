@@ -152,18 +152,19 @@ export async function registerRoutes(
 
   // Day Slot CRUD
   const createDaySlotSchema = z.object({
-    menuId: z.number(),
+    chefId: z.number(),
     date: z.string(),
     orderCutoffDate: z.string(),
   });
 
-  app.get("/api/menus/:menuId/day-slots", async (req, res) => {
+  // Get day slots by chef ID
+  app.get("/api/chefs/:chefId/day-slots", async (req, res) => {
     try {
-      const menuId = parseInt(req.params.menuId);
-      if (isNaN(menuId)) {
-        return res.status(400).json({ error: "Invalid menu ID" });
+      const chefId = parseInt(req.params.chefId);
+      if (isNaN(chefId)) {
+        return res.status(400).json({ error: "Invalid chef ID" });
       }
-      const daySlots = await storage.getDaySlotsByMenuId(menuId);
+      const daySlots = await storage.getDaySlotsByChefId(chefId);
       res.json(daySlots);
     } catch (error) {
       console.error("Error fetching day slots:", error);
@@ -175,7 +176,7 @@ export async function registerRoutes(
     try {
       const data = createDaySlotSchema.parse(req.body);
       const daySlot = await storage.createDaySlot({
-        menuId: data.menuId,
+        chefId: data.chefId,
         date: new Date(data.date),
         orderCutoffDate: new Date(data.orderCutoffDate),
       });

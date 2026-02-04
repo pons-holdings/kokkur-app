@@ -30,8 +30,8 @@ export interface IStorage {
   updateMenu(id: number, menu: Partial<InsertMenu>): Promise<Menu | undefined>;
   deleteMenu(id: number): Promise<boolean>;
 
-  // Day Slots
-  getDaySlotsByMenuId(menuId: number): Promise<DaySlotWithItems[]>;
+  // Day Slots (belong directly to chef)
+  getDaySlotsByChefId(chefId: number): Promise<DaySlotWithItems[]>;
   getDaySlotById(id: number): Promise<MenuDaySlot | undefined>;
   createDaySlot(slot: InsertMenuDaySlot): Promise<MenuDaySlot>;
   updateDaySlot(id: number, slot: Partial<InsertMenuDaySlot>): Promise<MenuDaySlot | undefined>;
@@ -76,22 +76,22 @@ export class DatabaseStorage implements IStorage {
   async getChefs(): Promise<ChefProfileWithMenus[]> {
     const chefsData = await db.select().from(chefProfiles);
     
-    const chefsWithMenus = await Promise.all(
+    const chefsWithDaySlots = await Promise.all(
       chefsData.map(async (chef) => {
-        const menusData = await this.getMenusByChefId(chef.id);
-        return { ...chef, menus: menusData };
+        const daySlotsData = await this.getDaySlotsByChefId(chef.id);
+        return { ...chef, daySlots: daySlotsData };
       })
     );
     
-    return chefsWithMenus;
+    return chefsWithDaySlots;
   }
 
   async getChefBySlug(slug: string): Promise<ChefProfileWithMenus | undefined> {
     const [chef] = await db.select().from(chefProfiles).where(eq(chefProfiles.slug, slug));
     if (!chef) return undefined;
     
-    const menusData = await this.getMenusByChefId(chef.id);
-    return { ...chef, menus: menusData };
+    const daySlotsData = await this.getDaySlotsByChefId(chef.id);
+    return { ...chef, daySlots: daySlotsData };
   }
 
   async getChefById(id: number): Promise<ChefProfile | undefined> {
@@ -105,16 +105,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getMenusByChefId(chefId: number): Promise<MenuWithDaySlots[]> {
+    // Menus are deprecated - day slots now belong directly to chefs
+    // This method is kept for backwards compatibility but returns menus without day slots
     const menusData = await db.select().from(menus).where(eq(menus.chefId, chefId));
-    
-    const menusWithDaySlots = await Promise.all(
-      menusData.map(async (menu) => {
-        const daySlots = await this.getDaySlotsByMenuId(menu.id);
-        return { ...menu, daySlots };
-      })
-    );
-    
-    return menusWithDaySlots;
+    return menusData.map((menu) => ({ ...menu, daySlots: [] }));
   }
 
   async getMenuById(id: number): Promise<Menu | undefined> {
@@ -212,9 +206,9 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
-  // Day Slot methods
-  async getDaySlotsByMenuId(menuId: number): Promise<DaySlotWithItems[]> {
-    const slots = await db.select().from(menuDaySlots).where(eq(menuDaySlots.menuId, menuId));
+  // Day Slot methods (belong directly to chef)
+  async getDaySlotsByChefId(chefId: number): Promise<DaySlotWithItems[]> {
+    const slots = await db.select().from(menuDaySlots).where(eq(menuDaySlots.chefId, chefId));
     
     const slotsWithItems = await Promise.all(
       slots.map(async (slot) => {
