@@ -112,15 +112,7 @@ export default function Dashboard() {
   const [addItemDialogOpen, setAddItemDialogOpen] = useState(false);
   const [editItemDialogOpen, setEditItemDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<MenuItemWithDetails | null>(null);
-  const [addMenuDialogOpen, setAddMenuDialogOpen] = useState(false);
-  const [editMenuDialogOpen, setEditMenuDialogOpen] = useState(false);
-  const [editingMenu, setEditingMenu] = useState<Menu | null>(null);
   const [deleteItemId, setDeleteItemId] = useState<number | null>(null);
-  const [deleteMenuId, setDeleteMenuId] = useState<number | null>(null);
-  const [assignItemsDialogOpen, setAssignItemsDialogOpen] = useState(false);
-  const [assigningToMenu, setAssigningToMenu] = useState<any>(null);
-  const [manageDaySlotsOpen, setManageDaySlotsOpen] = useState(false);
-  const [managingMenu, setManagingMenu] = useState<any>(null);
   const [selectedDaySlot, setSelectedDaySlot] = useState<DaySlot | null>(null);
   const [addDaySlotDate, setAddDaySlotDate] = useState("");
   const [addDaySlotCutoff, setAddDaySlotCutoff] = useState("");
@@ -146,17 +138,11 @@ export default function Dashboard() {
     enabled: !!selectedChef?.id,
   });
 
-  const { data: chefMenus, isLoading: menusLoading } = useQuery<Menu[]>({
-    queryKey: ["/api/menus/chef", selectedChef?.id],
-    enabled: !!selectedChef?.id,
-  });
-
   const { data: orders, isLoading: ordersLoading } = useQuery<OrderWithItems[]>({
     queryKey: ["/api/orders/chef", selectedChef?.id],
     enabled: !!selectedChef?.id,
   });
 
-  const activeMenus = chefMenus?.filter((m) => m.status === "active") || [];
   const pendingOrders = orders?.filter((o) => o.status === "pending" || o.status === "confirmed") || [];
 
   const prepList = pendingOrders.reduce((acc, order) => {
@@ -192,24 +178,11 @@ export default function Dashboard() {
     },
   });
 
-  const menuForm = useForm<MenuForm>({
-    resolver: zodResolver(menuSchema),
-    defaultValues: {
-      chefId: selectedChef?.id || 0,
-      title: "",
-      description: "",
-      startDate: "",
-      endDate: "",
-      status: "draft",
-    },
-  });
-
   useEffect(() => {
     if (selectedChef?.id) {
       itemForm.setValue("chefId", selectedChef.id);
-      menuForm.setValue("chefId", selectedChef.id);
     }
-  }, [selectedChef?.id, itemForm, menuForm]);
+  }, [selectedChef?.id, itemForm]);
 
   const [uploadingImage, setUploadingImage] = useState(false);
 
@@ -257,53 +230,6 @@ export default function Dashboard() {
     },
     onError: (error: Error) => {
       toast({ title: "Error deleting item", description: error.message, variant: "destructive" });
-    },
-  });
-
-  const createMenuMutation = useMutation({
-    mutationFn: async (data: MenuForm) => {
-      return apiRequest("POST", "/api/menus", data);
-    },
-    onSuccess: () => {
-      toast({ title: "Menu created", description: "Your new menu has been added." });
-      queryClient.invalidateQueries({ queryKey: ["/api/menus/chef", selectedChef?.id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/chefs"] });
-      setAddMenuDialogOpen(false);
-      menuForm.reset({ chefId: selectedChef?.id || 0, title: "", description: "", startDate: "", endDate: "", status: "draft" });
-    },
-    onError: (error: Error) => {
-      toast({ title: "Error creating menu", description: error.message, variant: "destructive" });
-    },
-  });
-
-  const updateMenuMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: Partial<MenuForm> }) => {
-      return apiRequest("PATCH", `/api/menus/${id}`, data);
-    },
-    onSuccess: () => {
-      toast({ title: "Menu updated", description: "Your menu has been updated." });
-      queryClient.invalidateQueries({ queryKey: ["/api/menus/chef", selectedChef?.id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/chefs"] });
-      setEditMenuDialogOpen(false);
-      setEditingMenu(null);
-    },
-    onError: (error: Error) => {
-      toast({ title: "Error updating menu", description: error.message, variant: "destructive" });
-    },
-  });
-
-  const deleteMenuMutation = useMutation({
-    mutationFn: async (id: number) => {
-      return apiRequest("DELETE", `/api/menus/${id}`);
-    },
-    onSuccess: () => {
-      toast({ title: "Menu deleted", description: "Your menu has been removed." });
-      queryClient.invalidateQueries({ queryKey: ["/api/menus/chef", selectedChef?.id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/chefs"] });
-      setDeleteMenuId(null);
-    },
-    onError: (error: Error) => {
-      toast({ title: "Error deleting menu", description: error.message, variant: "destructive" });
     },
   });
 
@@ -391,10 +317,6 @@ export default function Dashboard() {
     createMenuItemMutation.mutate(data);
   };
 
-  const onSubmitMenu = (data: MenuForm) => {
-    createMenuMutation.mutate(data);
-  };
-
   const handleEditItem = (item: MenuItemWithDetails) => {
     setEditingItem(item);
     itemForm.reset({
@@ -411,51 +333,11 @@ export default function Dashboard() {
     setEditItemDialogOpen(true);
   };
 
-  const handleEditMenu = (menu: any) => {
-    setEditingMenu(menu);
-    menuForm.reset({
-      chefId: selectedChef?.id || 0,
-      title: menu.title,
-      description: menu.description || "",
-      startDate: menu.startDate ? format(new Date(menu.startDate), "yyyy-MM-dd") : "",
-      endDate: menu.endDate ? format(new Date(menu.endDate), "yyyy-MM-dd") : "",
-      status: menu.status as "draft" | "active" | "archived",
-    });
-    setEditMenuDialogOpen(true);
-  };
-
-  const handleOpenAssignItems = (menu: any) => {
-    setAssigningToMenu(menu);
-    setAssignItemsDialogOpen(true);
-  };
-
-  // Get all item IDs assigned to any day slot in this menu
-  const getMenuItemIds = (menu: any) => {
-    const allItemIds = new Set<number>();
-    menu?.daySlots?.forEach((slot: DaySlot) => {
-      slot.items?.forEach((item: MenuItemWithDetails) => {
-        allItemIds.add(item.id);
-      });
-    });
-    return Array.from(allItemIds);
-  };
-
-  // Get fresh menu data from the query to ensure we have updated day slots
-  const getCurrentMenu = (menuId: number): any | undefined => {
-    for (const chef of chefs || []) {
-      const menu = chef.menus?.find((m: any) => m.id === menuId);
-      if (menu) return menu;
-    }
-    return undefined;
-  };
-
   // Get fresh day slot data from the query to ensure we have updated item assignments
   const getCurrentDaySlot = (daySlotId: number): DaySlot | undefined => {
     for (const chef of chefs || []) {
-      for (const menu of chef.menus || []) {
-        const slot = (menu as any).daySlots?.find((s: DaySlot) => s.id === daySlotId);
-        if (slot) return slot;
-      }
+      const slot = chef.daySlots?.find((s: any) => s.id === daySlotId);
+      if (slot) return slot as unknown as DaySlot;
     }
     return undefined;
   };
@@ -466,9 +348,6 @@ export default function Dashboard() {
     return freshSlot?.items?.map((item: MenuItemWithDetails) => item.id) || [];
   };
 
-  // Get the current menu with fresh data
-  const currentManagingMenu = managingMenu ? getCurrentMenu(managingMenu.id) : null;
-
   const toggleItemAssignment = async (daySlotId: number, itemId: number, isAssigned: boolean) => {
     if (isAssigned) {
       await removeItemFromDaySlotMutation.mutateAsync({ daySlotId, itemId });
@@ -477,35 +356,8 @@ export default function Dashboard() {
     }
   };
 
-  const handleManageDaySlots = (menu: any) => {
-    setManagingMenu(menu);
-    setSelectedDaySlot(null);
-    setAddDaySlotDate("");
-    setAddDaySlotCutoff("");
-    setManageDaySlotsOpen(true);
-  };
-
-  const handleAddDaySlot = async () => {
-    if (!managingMenu || !addDaySlotDate || !addDaySlotCutoff) return;
-    
-    await createDaySlotMutation.mutateAsync({
-      menuId: managingMenu.id,
-      date: addDaySlotDate,
-      orderCutoffDate: addDaySlotCutoff,
-    });
-    
-    setAddDaySlotDate("");
-    setAddDaySlotCutoff("");
-  };
-
   const handleDeleteDaySlot = async (daySlotId: number) => {
     await deleteDaySlotMutation.mutateAsync(daySlotId);
-  };
-
-  const handleSelectDaySlotForAssignment = (daySlot: DaySlot) => {
-    setSelectedDaySlot(daySlot);
-    setManageDaySlotsOpen(false);
-    setAssignItemsDialogOpen(true);
   };
 
   if (chefsLoading) {
@@ -583,8 +435,8 @@ export default function Dashboard() {
                   <Calendar className="h-6 w-6 text-blue-600 dark:text-blue-400" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold">{activeMenus.length}</p>
-                  <p className="text-sm text-muted-foreground">Active Menus</p>
+                  <p className="text-2xl font-bold">{selectedChef?.daySlots?.length || 0}</p>
+                  <p className="text-sm text-muted-foreground">Scheduled Days</p>
                 </div>
               </div>
             </CardContent>
@@ -984,7 +836,7 @@ export default function Dashboard() {
                 return upcomingDays.map((day) => {
                   const dateKey = format(day, "yyyy-MM-dd");
                   const existingSlot = selectedChef?.daySlots?.find(
-                    (slot: DaySlot) => format(new Date(slot.date), "yyyy-MM-dd") === dateKey
+                    (slot: any) => format(new Date(slot.date), "yyyy-MM-dd") === dateKey
                   );
                   const isExpanded = expandedDays.has(dateKey);
                   const itemCount = existingSlot?.items?.length || 0;
@@ -1473,216 +1325,6 @@ export default function Dashboard() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={editMenuDialogOpen} onOpenChange={setEditMenuDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit Menu</DialogTitle>
-          </DialogHeader>
-          
-          <Form {...menuForm}>
-            <form onSubmit={menuForm.handleSubmit((data) => editingMenu && updateMenuMutation.mutate({ id: editingMenu.id, data }))} className="space-y-4">
-              <FormField control={menuForm.control} name="title" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Menu Title</FormLabel>
-                  <FormControl><Input {...field} data-testid="input-edit-menu-title" /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={menuForm.control} name="description" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Description</FormLabel>
-                  <FormControl><Textarea className="resize-none" {...field} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <div className="grid sm:grid-cols-2 gap-4">
-                <FormField control={menuForm.control} name="startDate" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Start Date</FormLabel>
-                    <FormControl><Input type="date" {...field} data-testid="input-edit-start-date" /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                <FormField control={menuForm.control} name="endDate" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>End Date</FormLabel>
-                    <FormControl><Input type="date" {...field} data-testid="input-edit-end-date" /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-              </div>
-              <FormField control={menuForm.control} name="status" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Status</FormLabel>
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                    <SelectContent>
-                      <SelectItem value="draft">Draft</SelectItem>
-                      <SelectItem value="active">Active</SelectItem>
-                      <SelectItem value="archived">Archived</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <div className="flex justify-end gap-3 pt-4">
-                <Button type="button" variant="outline" onClick={() => setEditMenuDialogOpen(false)}>Cancel</Button>
-                <Button type="submit" disabled={updateMenuMutation.isPending} data-testid="button-update-menu">
-                  {updateMenuMutation.isPending ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving...</>) : "Save Changes"}
-                </Button>
-              </div>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Unified Manage Menu Dialog */}
-      <Dialog open={manageDaySlotsOpen} onOpenChange={(open) => { setManageDaySlotsOpen(open); if (!open) setExpandedDays(new Set()); }}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Manage Menu: {managingMenu?.title}</DialogTitle>
-            <DialogDescription>
-              Configure which days you'll offer food and assign items to each day.
-              {currentManagingMenu?.startDate && currentManagingMenu?.endDate && (
-                <span className="block mt-1">
-                  Date range: {format(new Date(currentManagingMenu.startDate), "MMM d")} - {format(new Date(currentManagingMenu.endDate), "MMM d, yyyy")}
-                </span>
-              )}
-            </DialogDescription>
-          </DialogHeader>
-          
-          {/* All days in the date range */}
-          <div className="space-y-3 max-h-[60vh] overflow-y-auto">
-            {currentManagingMenu?.startDate && currentManagingMenu?.endDate ? (
-              (() => {
-                const allDays = eachDayOfInterval({
-                  start: new Date(currentManagingMenu.startDate),
-                  end: new Date(currentManagingMenu.endDate)
-                });
-                
-                return allDays.map((day) => {
-                  const dateKey = format(day, "yyyy-MM-dd");
-                  const existingSlot = currentManagingMenu.daySlots?.find(
-                    (slot: DaySlot) => format(new Date(slot.date), "yyyy-MM-dd") === dateKey
-                  );
-                  const isEnabled = !!existingSlot;
-                  const isExpanded = expandedDays.has(dateKey);
-                  
-                  return (
-                    <div key={dateKey} className="border rounded-lg overflow-hidden">
-                      <div className="flex items-center justify-between p-3 bg-muted/30">
-                        <div className="flex items-center gap-3">
-                          <Checkbox
-                            checked={isEnabled}
-                            onCheckedChange={async (checked) => {
-                              if (checked && !existingSlot) {
-                                const cutoffDate = format(new Date(day.getTime() - 86400000), "yyyy-MM-dd");
-                                await createDaySlotMutation.mutateAsync({
-                                  menuId: currentManagingMenu.id,
-                                  date: dateKey,
-                                  orderCutoffDate: cutoffDate,
-                                });
-                              } else if (!checked && existingSlot) {
-                                await deleteDaySlotMutation.mutateAsync(existingSlot.id);
-                                setExpandedDays(prev => { const next = new Set(prev); next.delete(dateKey); return next; });
-                              }
-                            }}
-                            disabled={createDaySlotMutation.isPending || deleteDaySlotMutation.isPending}
-                            data-testid={`checkbox-day-${dateKey}`}
-                          />
-                          <div>
-                            <p className="font-medium">{format(day, "EEEE, MMMM d")}</p>
-                            {existingSlot && (
-                              <p className="text-xs text-muted-foreground">
-                                Order by {format(new Date(existingSlot.orderCutoffDate), "MMM d")} • {existingSlot.items?.length || 0} items
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                        
-                        {isEnabled && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setExpandedDays(prev => {
-                              const next = new Set(prev);
-                              if (next.has(dateKey)) next.delete(dateKey);
-                              else next.add(dateKey);
-                              return next;
-                            })}
-                            data-testid={`button-expand-day-${dateKey}`}
-                          >
-                            {isExpanded ? "Hide Items" : "Add Items"}
-                          </Button>
-                        )}
-                      </div>
-                      
-                      {/* Expanded item assignment section */}
-                      {isEnabled && isExpanded && (
-                        <div className="p-3 border-t space-y-3">
-                          {/* Order cutoff date editor */}
-                          <div className="flex items-center gap-2">
-                            <label className="text-sm text-muted-foreground whitespace-nowrap">Order cutoff:</label>
-                            <Input
-                              type="date"
-                              value={format(new Date(existingSlot!.orderCutoffDate), "yyyy-MM-dd")}
-                              className="w-auto"
-                              onChange={async (e) => {
-                                if (e.target.value && existingSlot) {
-                                  await updateDaySlotMutation.mutateAsync({
-                                    id: existingSlot.id,
-                                    orderCutoffDate: e.target.value,
-                                  });
-                                }
-                              }}
-                              data-testid={`input-cutoff-${dateKey}`}
-                            />
-                          </div>
-                          
-                          {/* Item checkboxes */}
-                          <div className="grid grid-cols-2 gap-2">
-                            {chefMenuItems && chefMenuItems.length > 0 ? (
-                              chefMenuItems.map((item) => {
-                                const freshSlot = getCurrentDaySlot(existingSlot!.id);
-                                const isAssigned = freshSlot?.items?.some((i: MenuItemWithDetails) => i.id === item.id) || false;
-                                return (
-                                  <div key={item.id} className="flex items-center gap-2 p-2 rounded border">
-                                    <Checkbox
-                                      checked={isAssigned}
-                                      onCheckedChange={async (checked) => {
-                                        await toggleItemAssignment(existingSlot!.id, item.id, isAssigned);
-                                      }}
-                                      disabled={assignItemToDaySlotMutation.isPending || removeItemFromDaySlotMutation.isPending}
-                                      data-testid={`checkbox-item-${dateKey}-${item.id}`}
-                                    />
-                                    <div className="min-w-0 flex-1">
-                                      <p className="text-sm font-medium truncate">{item.title}</p>
-                                      <p className="text-xs text-muted-foreground">${Number(item.price).toFixed(2)}</p>
-                                    </div>
-                                  </div>
-                                );
-                              })
-                            ) : (
-                              <p className="col-span-2 text-center text-sm text-muted-foreground py-2">No food items available. Create items first.</p>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                });
-              })()
-            ) : (
-              <p className="text-center text-muted-foreground py-8">Menu has no date range set.</p>
-            )}
-          </div>
-          
-          <div className="flex justify-end pt-2">
-            <Button variant="outline" onClick={() => { setManageDaySlotsOpen(false); setExpandedDays(new Set()); }}>Done</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
       <AlertDialog open={deleteItemId !== null} onOpenChange={() => setDeleteItemId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1698,20 +1340,6 @@ export default function Dashboard() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={deleteMenuId !== null} onOpenChange={() => setDeleteMenuId(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Menu?</AlertDialogTitle>
-            <AlertDialogDescription>This action cannot be undone. This will permanently delete the menu. Food items will not be deleted.</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => deleteMenuId && deleteMenuMutation.mutate(deleteMenuId)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }
