@@ -38,10 +38,17 @@ Preferred communication style: Simple, everyday language.
 - **Price Display**: Frontend shows price range (e.g., "$9.99 - $29.99") or default serving price
 - **Order Integration**: Customers select a serving option when adding to cart
 
-### Per-Day Stock Management
-- **Stock at Assignment Level**: Stock is tracked per day-slot assignment, not per menu item
-- **MenuItemAssignment Table**: Contains stockLimited (boolean), stockQuantity (nullable integer)
-- **Flexibility**: Same item can have different stock limits on different days
+### Per-Serving-Size Stock Management
+- **Stock at Serving Option Level**: Stock is tracked per serving size for each day-slot assignment
+- **AssignmentServingOptions Table**: Contains assignmentId, servingOptionId, stockLimited (boolean), stockQuantity (nullable integer)
+- **Flexibility**: Same item can have different stock limits per serving size on different days
+- **UI Workflow**: Search-to-add interface where chefs search for items, select which serving sizes to offer that day, and set optional stock limits per size
+
+### Assignment Serving Options API
+- `POST /api/assignments/:assignmentId/serving-options` - Add serving option with stock settings
+- `PATCH /api/assignment-serving-options/:id` - Update stock settings for assigned serving option
+- `DELETE /api/assignment-serving-options/:id` - Remove serving option from assignment
+- `GET /api/assignments/:assignmentId/serving-options` - Get all serving options for an assignment
 
 ### Multiple Photos per Item
 - **ItemPhotos Table**: Contains menuItemId, imageUrl, isCover flag, sortOrder
