@@ -265,12 +265,7 @@ export async function registerRoutes(
     }
   });
 
-  // Item assignment to day slots with per-day stock
-  const assignItemSchema = z.object({
-    stockLimited: z.boolean().default(false),
-    stockQuantity: z.number().optional(),
-  });
-
+  // Item assignment to day slots
   app.post("/api/day-slots/:daySlotId/items/:itemId", async (req, res) => {
     try {
       const daySlotId = parseInt(req.params.daySlotId);
@@ -278,35 +273,11 @@ export async function registerRoutes(
       if (isNaN(daySlotId) || isNaN(itemId)) {
         return res.status(400).json({ error: "Invalid day slot or item ID" });
       }
-      const { stockLimited, stockQuantity } = assignItemSchema.parse(req.body || {});
-      const assignment = await storage.assignItemToDaySlot(daySlotId, itemId, stockLimited, stockQuantity);
+      const assignment = await storage.assignItemToDaySlot(daySlotId, itemId);
       res.status(201).json(assignment);
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: "Invalid data", details: error.errors });
-      }
       console.error("Error assigning item to day slot:", error);
       res.status(500).json({ error: "Failed to assign item to day slot" });
-    }
-  });
-
-  // Update assignment stock info
-  app.patch("/api/day-slots/:daySlotId/items/:itemId", async (req, res) => {
-    try {
-      const daySlotId = parseInt(req.params.daySlotId);
-      const itemId = parseInt(req.params.itemId);
-      if (isNaN(daySlotId) || isNaN(itemId)) {
-        return res.status(400).json({ error: "Invalid day slot or item ID" });
-      }
-      const { stockLimited, stockQuantity } = assignItemSchema.parse(req.body);
-      await storage.updateDaySlotItemAssignment(daySlotId, itemId, stockLimited, stockQuantity);
-      res.json({ message: "Assignment updated" });
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: "Invalid data", details: error.errors });
-      }
-      console.error("Error updating assignment:", error);
-      res.status(500).json({ error: "Failed to update assignment" });
     }
   });
 
@@ -341,6 +312,84 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error removing item from day slot:", error);
       res.status(500).json({ error: "Failed to remove item from day slot" });
+    }
+  });
+  
+  // Assignment Serving Options - per-serving-size stock tracking
+  const assignmentServingOptionSchema = z.object({
+    servingOptionId: z.number(),
+    stockLimited: z.boolean().default(false),
+    stockQuantity: z.number().optional(),
+  });
+  
+  // Add serving option to assignment
+  app.post("/api/assignments/:assignmentId/serving-options", async (req, res) => {
+    try {
+      const assignmentId = parseInt(req.params.assignmentId);
+      if (isNaN(assignmentId)) {
+        return res.status(400).json({ error: "Invalid assignment ID" });
+      }
+      const { servingOptionId, stockLimited, stockQuantity } = assignmentServingOptionSchema.parse(req.body);
+      const option = await storage.addAssignmentServingOption(assignmentId, servingOptionId, stockLimited, stockQuantity);
+      res.status(201).json(option);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid data", details: error.errors });
+      }
+      console.error("Error adding assignment serving option:", error);
+      res.status(500).json({ error: "Failed to add serving option" });
+    }
+  });
+  
+  // Update assignment serving option stock
+  app.patch("/api/assignment-serving-options/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid ID" });
+      }
+      const { stockLimited, stockQuantity } = z.object({
+        stockLimited: z.boolean(),
+        stockQuantity: z.number().optional(),
+      }).parse(req.body);
+      await storage.updateAssignmentServingOption(id, stockLimited, stockQuantity);
+      res.json({ message: "Updated successfully" });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid data", details: error.errors });
+      }
+      console.error("Error updating assignment serving option:", error);
+      res.status(500).json({ error: "Failed to update serving option" });
+    }
+  });
+  
+  // Remove serving option from assignment
+  app.delete("/api/assignment-serving-options/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid ID" });
+      }
+      await storage.removeAssignmentServingOption(id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error removing assignment serving option:", error);
+      res.status(500).json({ error: "Failed to remove serving option" });
+    }
+  });
+  
+  // Get serving options for assignment
+  app.get("/api/assignments/:assignmentId/serving-options", async (req, res) => {
+    try {
+      const assignmentId = parseInt(req.params.assignmentId);
+      if (isNaN(assignmentId)) {
+        return res.status(400).json({ error: "Invalid assignment ID" });
+      }
+      const options = await storage.getAssignmentServingOptions(assignmentId);
+      res.json(options);
+    } catch (error) {
+      console.error("Error fetching assignment serving options:", error);
+      res.status(500).json({ error: "Failed to fetch serving options" });
     }
   });
 
