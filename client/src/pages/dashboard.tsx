@@ -678,11 +678,16 @@ export default function Dashboard() {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel>Ingredients</FormLabel>
-                            <FormDescription>Search and add ingredients - you can also create new ones</FormDescription>
+                            <FormDescription>Search and add ingredients - allergens will auto-select based on ingredients</FormDescription>
                             <FormControl>
                               <IngredientTypeahead
                                 selectedIds={field.value || []}
                                 onChange={field.onChange}
+                                onAllergensDetected={(newAllergenIds) => {
+                                  const currentAllergenIds = itemForm.getValues("allergenIds") || [];
+                                  const mergedAllergenIds = [...new Set([...currentAllergenIds, ...newAllergenIds])];
+                                  itemForm.setValue("allergenIds", mergedAllergenIds, { shouldDirty: true, shouldValidate: true });
+                                }}
                                 placeholder="Search or add ingredients..."
                               />
                             </FormControl>
@@ -1220,11 +1225,16 @@ export default function Dashboard() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Ingredients</FormLabel>
-                    <FormDescription>Search and add ingredients - you can also create new ones</FormDescription>
+                    <FormDescription>Search and add ingredients - allergens will auto-select based on ingredients</FormDescription>
                     <FormControl>
                       <IngredientTypeahead
                         selectedIds={field.value || []}
                         onChange={field.onChange}
+                        onAllergensDetected={(newAllergenIds) => {
+                          const currentAllergenIds = itemForm.getValues("allergenIds") || [];
+                          const mergedAllergenIds = [...new Set([...currentAllergenIds, ...newAllergenIds])];
+                          itemForm.setValue("allergenIds", mergedAllergenIds, { shouldDirty: true, shouldValidate: true });
+                        }}
                         placeholder="Search or add ingredients..."
                       />
                     </FormControl>

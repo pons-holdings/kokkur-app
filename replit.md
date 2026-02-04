@@ -49,9 +49,11 @@ Preferred communication style: Simple, everyday language.
 - **Photo Management**: Routes for adding/removing photos and setting cover
 
 ### Ingredient-Allergen Mapping
-- **Auto-Select Allergens**: When ingredients are added to a dish, related allergens are automatically suggested
-- **IngredientAllergens Table**: Maps ingredients to their associated allergens
-- **Comprehensive Allergen List**: FDA Big 9 + EU common allergens (15 total)
+- **Auto-Select Allergens**: When ingredients are added to a dish via the typeahead, allergens are automatically checked in the form
+- **IngredientAllergens Table**: Maps ingredients to their associated allergens (70+ mappings in seed data)
+- **Comprehensive Allergen List**: FDA Big 9 + EU common allergens (15 total: Milk, Eggs, Fish, Shellfish, Mollusks, Wheat, Gluten, Tree Nuts, Peanuts, Soy, Sesame, Mustard, Celery, Lupin, Sulfites)
+- **IngredientTypeahead Component**: Shows allergen warning icons on ingredients that trigger allergens, and calls onAllergensDetected callback to merge detected allergens into form state
+- **Extensive Ingredient Database**: 100+ ingredients seeded covering proteins, grains, vegetables, dairy, nuts, soy products, herbs/spices
 
 ### Calendar-Based Scheduling System
 - **Day Slots**: Chefs create day slots directly (no menus) - each representing a date when food is offered

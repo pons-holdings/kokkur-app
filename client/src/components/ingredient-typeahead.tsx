@@ -1,33 +1,39 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { X, Search, Plus, Loader2 } from "lucide-react";
+import { X, Search, Plus, Loader2, AlertTriangle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import type { Ingredient } from "@shared/schema";
+import type { Ingredient, Allergen } from "@shared/schema";
+
+interface IngredientWithAllergens extends Ingredient {
+  allergens: Allergen[];
+}
 
 interface IngredientTypeaheadProps {
   selectedIds: number[];
   onChange: (ids: number[]) => void;
+  onAllergensDetected?: (allergenIds: number[]) => void;
   placeholder?: string;
 }
 
 export function IngredientTypeahead({
   selectedIds,
   onChange,
+  onAllergensDetected,
   placeholder = "Search ingredients...",
 }: IngredientTypeaheadProps) {
   const [search, setSearch] = useState("");
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const { data: allIngredients = [] } = useQuery<Ingredient[]>({
-    queryKey: ["/api/ingredients"],
+  const { data: allIngredients = [] } = useQuery<IngredientWithAllergens[]>({
+    queryKey: ["/api/ingredients-with-allergens"],
   });
 
   const { data: searchResults = [], isLoading: searching } = useQuery<Ingredient[]>({
-    queryKey: ["/api/ingredients", { search }],
+    queryKey: [`/api/ingredients?search=${encodeURIComponent(search)}`],
     enabled: search.length >= 1,
   });
 
@@ -38,6 +44,7 @@ export function IngredientTypeahead({
     },
     onSuccess: (newIngredient: Ingredient) => {
       queryClient.invalidateQueries({ queryKey: ["/api/ingredients"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/ingredients-with-allergens"] });
       onChange([...selectedIds, newIngredient.id]);
       setSearch("");
     },
@@ -61,7 +68,16 @@ export function IngredientTypeahead({
   );
 
   const handleSelect = (ingredient: Ingredient) => {
-    onChange([...selectedIds, ingredient.id]);
+    const newIds = [...selectedIds, ingredient.id];
+    onChange(newIds);
+    
+    // Find the ingredient with allergens and notify parent
+    const ingredientWithAllergens = allIngredients.find(i => i.id === ingredient.id);
+    if (ingredientWithAllergens?.allergens?.length && onAllergensDetected) {
+      const allergenIds = ingredientWithAllergens.allergens.map(a => a.id);
+      onAllergensDetected(allergenIds);
+    }
+    
     setSearch("");
     setIsOpen(false);
   };
@@ -76,30 +92,44 @@ export function IngredientTypeahead({
     }
   };
 
+  // Get allergen display for an ingredient
+  const getIngredientAllergens = (ingredientId: number): Allergen[] => {
+    const ing = allIngredients.find(i => i.id === ingredientId);
+    return ing?.allergens || [];
+  };
+
   return (
     <div ref={containerRef} className="space-y-2">
       {selectedIngredients.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {selectedIngredients.map((ingredient) => (
-            <Badge
-              key={ingredient.id}
-              variant="secondary"
-              className="gap-1 pr-1"
-              data-testid={`badge-ingredient-${ingredient.id}`}
-            >
-              {ingredient.name}
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-4 w-4 hover:bg-transparent"
-                onClick={() => handleRemove(ingredient.id)}
-                data-testid={`button-remove-ingredient-${ingredient.id}`}
+          {selectedIngredients.map((ingredient) => {
+            const allergens = getIngredientAllergens(ingredient.id);
+            return (
+              <Badge
+                key={ingredient.id}
+                variant="secondary"
+                className="gap-1 pr-1"
+                data-testid={`badge-ingredient-${ingredient.id}`}
               >
-                <X className="h-3 w-3" />
-              </Button>
-            </Badge>
-          ))}
+                {ingredient.name}
+                {allergens.length > 0 && (
+                  <span className="text-xs text-amber-600 dark:text-amber-400 ml-1">
+                    <AlertTriangle className="h-3 w-3 inline" />
+                  </span>
+                )}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-4 w-4 hover:bg-transparent"
+                  onClick={() => handleRemove(ingredient.id)}
+                  data-testid={`button-remove-ingredient-${ingredient.id}`}
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              </Badge>
+            );
+          })}
         </div>
       )}
 
@@ -128,17 +158,26 @@ export function IngredientTypeahead({
               </div>
             )}
 
-            {!searching && filteredResults.map((ingredient) => (
-              <button
-                key={ingredient.id}
-                type="button"
-                className="w-full px-3 py-2 text-left text-sm hover-elevate cursor-pointer flex items-center gap-2"
-                onClick={() => handleSelect(ingredient)}
-                data-testid={`option-ingredient-${ingredient.id}`}
-              >
-                {ingredient.name}
-              </button>
-            ))}
+            {!searching && filteredResults.map((ingredient) => {
+              const allergens = getIngredientAllergens(ingredient.id);
+              return (
+                <button
+                  key={ingredient.id}
+                  type="button"
+                  className="w-full px-3 py-2 text-left text-sm hover-elevate cursor-pointer flex items-center justify-between gap-2"
+                  onClick={() => handleSelect(ingredient)}
+                  data-testid={`option-ingredient-${ingredient.id}`}
+                >
+                  <span>{ingredient.name}</span>
+                  {allergens.length > 0 && (
+                    <span className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                      <AlertTriangle className="h-3 w-3" />
+                      {allergens.map(a => a.name).join(", ")}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
 
             {showCreateOption && (
               <button

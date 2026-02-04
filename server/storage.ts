@@ -559,11 +559,24 @@ export class DatabaseStorage implements IStorage {
     );
 
     const ingredientsList = [
-      "Chicken", "Beef", "Pork", "Salmon", "Shrimp", "Tofu",
-      "Rice", "Pasta", "Bread", "Potatoes", "Quinoa",
-      "Tomatoes", "Onions", "Garlic", "Bell Peppers", "Spinach", "Broccoli", "Carrots",
-      "Olive Oil", "Butter", "Cream", "Cheese", "Coconut Milk",
-      "Basil", "Oregano", "Thyme", "Cumin", "Paprika", "Turmeric",
+      // Proteins
+      "Chicken", "Beef", "Pork", "Salmon", "Shrimp", "Tofu", "Eggs", "Tuna", "Cod", "Crab", "Lobster", "Scallops", "Mussels", "Clams", "Oysters", "Squid", "Octopus", "Turkey", "Duck", "Lamb",
+      // Grains & Starches
+      "Rice", "Pasta", "Bread", "Potatoes", "Quinoa", "Flour", "Breadcrumbs", "Couscous", "Barley", "Oats", "Noodles", "Tortillas", "Corn",
+      // Vegetables
+      "Tomatoes", "Onions", "Garlic", "Bell Peppers", "Spinach", "Broccoli", "Carrots", "Celery", "Mushrooms", "Zucchini", "Eggplant", "Cabbage", "Lettuce", "Kale", "Asparagus", "Green Beans", "Peas",
+      // Dairy & Eggs
+      "Butter", "Cream", "Cheese", "Milk", "Yogurt", "Sour Cream", "Cream Cheese", "Parmesan", "Mozzarella", "Ricotta", "Mascarpone", "Whey Protein", "Ghee",
+      // Oils & Fats
+      "Olive Oil", "Vegetable Oil", "Sesame Oil", "Coconut Oil", "Peanut Oil",
+      // Nuts & Seeds
+      "Almonds", "Walnuts", "Cashews", "Peanuts", "Pistachios", "Pine Nuts", "Hazelnuts", "Pecans", "Macadamia Nuts", "Sesame Seeds", "Sunflower Seeds", "Pumpkin Seeds", "Tahini", "Almond Butter", "Peanut Butter",
+      // Soy Products
+      "Soy Sauce", "Miso", "Edamame", "Tempeh", "Soy Milk",
+      // Other
+      "Coconut Milk", "Coconut", "Honey", "Maple Syrup",
+      // Herbs & Spices
+      "Basil", "Oregano", "Thyme", "Cumin", "Paprika", "Turmeric", "Ginger", "Cilantro", "Parsley", "Rosemary", "Mustard", "Mustard Seed",
     ];
 
     const createdIngredients = await Promise.all(
@@ -651,6 +664,7 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item1.id, servingSize: 2, label: "2 servings", price: 29.99, isDefault: 0 });
     await this.addItemAllergens(item1.id, [findAllergen("Milk")]);
     await this.addItemIngredients(item1.id, [findIngredient("Chicken"), findIngredient("Cheese"), findIngredient("Onions"), findIngredient("Rice")]);
+    await this.createItemPhoto({ menuItemId: item1.id, imageUrl: "/images/dishes/enchiladas-verdes.jpg", isCover: 1 });
     await this.assignItemToDaySlot(daySlot1_1.id, item1.id);
     await this.assignItemToDaySlot(daySlot1_2.id, item1.id);
 
@@ -663,6 +677,7 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item2.id, servingSize: 12, label: "Full dozen", price: 26.99, isDefault: 0 });
     await this.addItemAllergens(item2.id, [findAllergen("Milk")]);
     await this.addItemIngredients(item2.id, [findIngredient("Cheese"), findIngredient("Bell Peppers")]);
+    await this.createItemPhoto({ menuItemId: item2.id, imageUrl: "/images/dishes/tamales.jpg", isCover: 1 });
     await this.assignItemToDaySlot(daySlot1_1.id, item2.id);
 
     const item3 = await this.createMenuItem({
@@ -673,6 +688,7 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item3.id, servingSize: 1, label: "6 tacos", price: 18.99, isDefault: 1 });
     await this.createServingOption({ menuItemId: item3.id, servingSize: 2, label: "12 tacos (party size)", price: 34.99, isDefault: 0 });
     await this.addItemIngredients(item3.id, [findIngredient("Pork"), findIngredient("Onions"), findIngredient("Garlic")]);
+    await this.createItemPhoto({ menuItemId: item3.id, imageUrl: "/images/dishes/carnitas-tacos.jpg", isCover: 1 });
     await this.assignItemToDaySlot(daySlot1_2.id, item3.id);
 
     // Chef 2's items
@@ -685,6 +701,7 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item4.id, servingSize: 4, label: "Full tray (4-6 servings)", price: 44.99, isDefault: 0 });
     await this.addItemAllergens(item4.id, [findAllergen("Milk"), findAllergen("Eggs"), findAllergen("Wheat")]);
     await this.addItemIngredients(item4.id, [findIngredient("Beef"), findIngredient("Pasta"), findIngredient("Cheese"), findIngredient("Tomatoes")]);
+    await this.createItemPhoto({ menuItemId: item4.id, imageUrl: "/images/dishes/lasagna.jpg", isCover: 1 });
     await this.assignItemToDaySlot(daySlot2.id, item4.id);
 
     const item5 = await this.createMenuItem({
@@ -696,6 +713,7 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item5.id, servingSize: 2, label: "2 servings", price: 32.99, isDefault: 0 });
     await this.addItemAllergens(item5.id, [findAllergen("Milk"), findAllergen("Eggs"), findAllergen("Wheat")]);
     await this.addItemIngredients(item5.id, [findIngredient("Pasta"), findIngredient("Butter"), findIngredient("Cream"), findIngredient("Cheese")]);
+    await this.createItemPhoto({ menuItemId: item5.id, imageUrl: "/images/dishes/fettuccine-alfredo.jpg", isCover: 1 });
     await this.assignItemToDaySlot(daySlot2.id, item5.id);
 
     const item6 = await this.createMenuItem({
@@ -707,6 +725,7 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item6.id, servingSize: 4, label: "Family size (4 servings)", price: 69.99, isDefault: 0 });
     await this.addItemAllergens(item6.id, [findAllergen("Milk"), findAllergen("Eggs"), findAllergen("Wheat")]);
     await this.addItemIngredients(item6.id, [findIngredient("Chicken"), findIngredient("Pasta"), findIngredient("Tomatoes"), findIngredient("Cheese")]);
+    await this.createItemPhoto({ menuItemId: item6.id, imageUrl: "/images/dishes/chicken-parmesan.jpg", isCover: 1 });
     await this.assignItemToDaySlot(daySlot2.id, item6.id);
 
     const item7 = await this.createMenuItem({
@@ -717,6 +736,7 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item7.id, servingSize: 1, label: "1 slice", price: 9.99, isDefault: 1 });
     await this.createServingOption({ menuItemId: item7.id, servingSize: 6, label: "Whole cake (6-8 slices)", price: 49.99, isDefault: 0 });
     await this.addItemAllergens(item7.id, [findAllergen("Milk"), findAllergen("Eggs"), findAllergen("Wheat")]);
+    await this.createItemPhoto({ menuItemId: item7.id, imageUrl: "/images/dishes/tiramisu.jpg", isCover: 1 });
     await this.assignItemToDaySlot(daySlot2.id, item7.id);
 
     // Chef 3's items
@@ -728,6 +748,7 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item8.id, servingSize: 1, label: "1 bowl", price: 21.99, isDefault: 1 });
     await this.addItemAllergens(item8.id, [findAllergen("Fish"), findAllergen("Soy"), findAllergen("Sesame")]);
     await this.addItemIngredients(item8.id, [findIngredient("Salmon"), findIngredient("Rice"), findIngredient("Carrots")]);
+    await this.createItemPhoto({ menuItemId: item8.id, imageUrl: "/images/dishes/teriyaki-salmon.jpg", isCover: 1 });
     await this.assignItemToDaySlot(daySlot3_1.id, item8.id);
     await this.assignItemToDaySlot(daySlot3_2.id, item8.id);
 
@@ -740,6 +761,7 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item9.id, servingSize: 2, label: "2 servings", price: 30.99, isDefault: 0 });
     await this.addItemAllergens(item9.id, [findAllergen("Shellfish"), findAllergen("Peanuts"), findAllergen("Soy"), findAllergen("Eggs")]);
     await this.addItemIngredients(item9.id, [findIngredient("Shrimp"), findIngredient("Tofu"), findIngredient("Rice")]);
+    await this.createItemPhoto({ menuItemId: item9.id, imageUrl: "/images/dishes/pad-thai.jpg", isCover: 1 });
     await this.assignItemToDaySlot(daySlot3_1.id, item9.id);
 
     const item10 = await this.createMenuItem({
@@ -751,6 +773,7 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item10.id, servingSize: 4, label: "Family size (4 servings)", price: 59.99, isDefault: 0 });
     await this.addItemAllergens(item10.id, [findAllergen("Soy")]);
     await this.addItemIngredients(item10.id, [findIngredient("Chicken"), findIngredient("Coconut Milk"), findIngredient("Rice"), findIngredient("Broccoli")]);
+    await this.createItemPhoto({ menuItemId: item10.id, imageUrl: "/images/dishes/green-curry.jpg", isCover: 1 });
     await this.assignItemToDaySlot(daySlot3_1.id, item10.id);
     await this.assignItemToDaySlot(daySlot3_2.id, item10.id);
 
@@ -763,6 +786,7 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item11.id, servingSize: 8, label: "8 pieces", price: 15.99, isDefault: 0 });
     await this.addItemAllergens(item11.id, [findAllergen("Wheat"), findAllergen("Soy")]);
     await this.addItemIngredients(item11.id, [findIngredient("Carrots")]);
+    await this.createItemPhoto({ menuItemId: item11.id, imageUrl: "/images/dishes/spring-rolls.jpg", isCover: 1 });
     await this.assignItemToDaySlot(daySlot3_2.id, item11.id);
 
     const item12 = await this.createMenuItem({
@@ -773,20 +797,97 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item12.id, servingSize: 1, label: "1 bowl", price: 15.99, isDefault: 1 });
     await this.addItemAllergens(item12.id, [findAllergen("Soy")]);
     await this.addItemIngredients(item12.id, [findIngredient("Tofu"), findIngredient("Quinoa"), findIngredient("Broccoli"), findIngredient("Carrots")]);
+    await this.createItemPhoto({ menuItemId: item12.id, imageUrl: "/images/dishes/miso-tofu.jpg", isCover: 1 });
     await this.assignItemToDaySlot(daySlot3_1.id, item12.id);
     await this.assignItemToDaySlot(daySlot3_2.id, item12.id);
 
-    // Add ingredient-allergen mappings for auto-selection
-    await this.addIngredientAllergen(findIngredient("Cheese"), findAllergen("Milk"));
-    await this.addIngredientAllergen(findIngredient("Butter"), findAllergen("Milk"));
-    await this.addIngredientAllergen(findIngredient("Cream"), findAllergen("Milk"));
-    await this.addIngredientAllergen(findIngredient("Pasta"), findAllergen("Wheat"));
-    await this.addIngredientAllergen(findIngredient("Pasta"), findAllergen("Gluten"));
-    await this.addIngredientAllergen(findIngredient("Bread"), findAllergen("Wheat"));
-    await this.addIngredientAllergen(findIngredient("Bread"), findAllergen("Gluten"));
-    await this.addIngredientAllergen(findIngredient("Salmon"), findAllergen("Fish"));
-    await this.addIngredientAllergen(findIngredient("Shrimp"), findAllergen("Shellfish"));
-    await this.addIngredientAllergen(findIngredient("Tofu"), findAllergen("Soy"));
+    // Add comprehensive ingredient-allergen mappings for auto-selection
+    // DAIRY/MILK allergens
+    const dairyIngredients = ["Cheese", "Butter", "Cream", "Milk", "Yogurt", "Sour Cream", "Cream Cheese", "Parmesan", "Mozzarella", "Ricotta", "Mascarpone", "Whey Protein", "Ghee"];
+    for (const ing of dairyIngredients) {
+      const ingId = findIngredient(ing);
+      if (ingId) await this.addIngredientAllergen(ingId, findAllergen("Milk"));
+    }
+
+    // EGG allergens
+    const eggIngredients = ["Eggs"];
+    for (const ing of eggIngredients) {
+      const ingId = findIngredient(ing);
+      if (ingId) await this.addIngredientAllergen(ingId, findAllergen("Eggs"));
+    }
+
+    // FISH allergens
+    const fishIngredients = ["Salmon", "Tuna", "Cod"];
+    for (const ing of fishIngredients) {
+      const ingId = findIngredient(ing);
+      if (ingId) await this.addIngredientAllergen(ingId, findAllergen("Fish"));
+    }
+
+    // SHELLFISH/CRUSTACEAN allergens
+    const shellfishIngredients = ["Shrimp", "Crab", "Lobster", "Scallops"];
+    for (const ing of shellfishIngredients) {
+      const ingId = findIngredient(ing);
+      if (ingId) await this.addIngredientAllergen(ingId, findAllergen("Shellfish"));
+    }
+
+    // MOLLUSKS allergens
+    const molluskIngredients = ["Mussels", "Clams", "Oysters", "Squid", "Octopus"];
+    for (const ing of molluskIngredients) {
+      const ingId = findIngredient(ing);
+      if (ingId) await this.addIngredientAllergen(ingId, findAllergen("Mollusks"));
+    }
+
+    // WHEAT/GLUTEN allergens
+    const wheatIngredients = ["Pasta", "Bread", "Flour", "Breadcrumbs", "Couscous", "Barley", "Noodles"];
+    for (const ing of wheatIngredients) {
+      const ingId = findIngredient(ing);
+      if (ingId) {
+        await this.addIngredientAllergen(ingId, findAllergen("Wheat"));
+        await this.addIngredientAllergen(ingId, findAllergen("Gluten"));
+      }
+    }
+
+    // TREE NUTS allergens
+    const treeNutIngredients = ["Almonds", "Walnuts", "Cashews", "Pistachios", "Pine Nuts", "Hazelnuts", "Pecans", "Macadamia Nuts", "Almond Butter"];
+    for (const ing of treeNutIngredients) {
+      const ingId = findIngredient(ing);
+      if (ingId) await this.addIngredientAllergen(ingId, findAllergen("Tree Nuts"));
+    }
+
+    // PEANUT allergens
+    const peanutIngredients = ["Peanuts", "Peanut Butter", "Peanut Oil"];
+    for (const ing of peanutIngredients) {
+      const ingId = findIngredient(ing);
+      if (ingId) await this.addIngredientAllergen(ingId, findAllergen("Peanuts"));
+    }
+
+    // SOY allergens
+    const soyIngredients = ["Tofu", "Soy Sauce", "Miso", "Edamame", "Tempeh", "Soy Milk"];
+    for (const ing of soyIngredients) {
+      const ingId = findIngredient(ing);
+      if (ingId) await this.addIngredientAllergen(ingId, findAllergen("Soy"));
+    }
+
+    // SESAME allergens
+    const sesameIngredients = ["Sesame Seeds", "Sesame Oil", "Tahini"];
+    for (const ing of sesameIngredients) {
+      const ingId = findIngredient(ing);
+      if (ingId) await this.addIngredientAllergen(ingId, findAllergen("Sesame"));
+    }
+
+    // MUSTARD allergens
+    const mustardIngredients = ["Mustard", "Mustard Seed"];
+    for (const ing of mustardIngredients) {
+      const ingId = findIngredient(ing);
+      if (ingId) await this.addIngredientAllergen(ingId, findAllergen("Mustard"));
+    }
+
+    // CELERY allergens
+    const celeryIngredients = ["Celery"];
+    for (const ing of celeryIngredients) {
+      const ingId = findIngredient(ing);
+      if (ingId) await this.addIngredientAllergen(ingId, findAllergen("Celery"));
+    }
 
     console.log("Database seeded successfully!");
   }
