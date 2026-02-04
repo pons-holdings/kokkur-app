@@ -64,6 +64,8 @@ import {
   Pencil,
   Trash2,
   ListPlus,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 import { Header } from "@/components/header";
 import { useToast } from "@/hooks/use-toast";
@@ -96,7 +98,7 @@ const menuSchema = z.object({
 type MenuForm = z.infer<typeof menuSchema>;
 
 const daySlotSchema = z.object({
-  menuId: z.number(),
+  chefId: z.number(),
   date: z.string(),
   orderCutoffDate: z.string(),
 });
@@ -105,14 +107,10 @@ type DaySlotForm = z.infer<typeof daySlotSchema>;
 
 interface DaySlot {
   id: number;
-  menuId: number;
+  chefId: number;
   date: string;
   orderCutoffDate: string;
-  items: MenuItemWithDetails[];
-}
-
-interface MenuWithDaySlots extends Menu {
-  daySlots: DaySlot[];
+  items?: MenuItemWithDetails[];
 }
 
 interface MenuItemWithDetails extends MenuItem {
@@ -353,8 +351,7 @@ export default function Dashboard() {
       return apiRequest("POST", "/api/day-slots", data);
     },
     onSuccess: () => {
-      toast({ title: "Day added", description: "New day slot has been added to the menu." });
-      queryClient.invalidateQueries({ queryKey: ["/api/menus/chef", selectedChef?.id] });
+      toast({ title: "Day added", description: "You can now assign food items to this day." });
       queryClient.invalidateQueries({ queryKey: ["/api/chefs"] });
     },
     onError: (error: Error) => {
@@ -367,8 +364,7 @@ export default function Dashboard() {
       return apiRequest("DELETE", `/api/day-slots/${id}`);
     },
     onSuccess: () => {
-      toast({ title: "Day removed", description: "Day slot has been removed from the menu." });
-      queryClient.invalidateQueries({ queryKey: ["/api/menus/chef", selectedChef?.id] });
+      toast({ title: "Day removed", description: "This day has been removed from your schedule." });
       queryClient.invalidateQueries({ queryKey: ["/api/chefs"] });
     },
     onError: (error: Error) => {
@@ -382,7 +378,6 @@ export default function Dashboard() {
     },
     onSuccess: () => {
       toast({ title: "Cutoff updated", description: "Order cutoff date has been updated." });
-      queryClient.invalidateQueries({ queryKey: ["/api/menus/chef", selectedChef?.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/chefs"] });
     },
     onError: (error: Error) => {
@@ -638,7 +633,7 @@ export default function Dashboard() {
         <Tabs defaultValue="items" className="space-y-6">
           <TabsList>
             <TabsTrigger value="items" data-testid="tab-items">My Food Items</TabsTrigger>
-            <TabsTrigger value="menus" data-testid="tab-menus">My Menus</TabsTrigger>
+            <TabsTrigger value="menus" data-testid="tab-schedule">My Schedule</TabsTrigger>
             <TabsTrigger value="prep" data-testid="tab-prep">Prep List</TabsTrigger>
             <TabsTrigger value="orders" data-testid="tab-orders">Orders</TabsTrigger>
           </TabsList>
@@ -984,178 +979,175 @@ export default function Dashboard() {
 
           <TabsContent value="menus" className="space-y-6">
             <div className="flex items-center justify-between">
-              <h2 className="text-xl font-semibold">My Menus</h2>
-              
-              <Dialog open={addMenuDialogOpen} onOpenChange={setAddMenuDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button data-testid="button-add-menu">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Create Menu
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Create New Menu</DialogTitle>
-                    <DialogDescription>Create a menu with date ranges for ordering and fulfillment.</DialogDescription>
-                  </DialogHeader>
-                  
-                  <Form {...menuForm}>
-                    <form onSubmit={menuForm.handleSubmit(onSubmitMenu)} className="space-y-4">
-                      <FormField
-                        control={menuForm.control}
-                        name="title"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Menu Title</FormLabel>
-                            <FormControl>
-                              <Input placeholder="e.g., Week of Feb 10th" {...field} data-testid="input-menu-title" />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <FormField
-                        control={menuForm.control}
-                        name="description"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Description (Optional)</FormLabel>
-                            <FormControl>
-                              <Textarea placeholder="Describe this menu..." className="resize-none" {...field} data-testid="input-menu-description" />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <div className="grid sm:grid-cols-2 gap-4">
-                        <FormField
-                          control={menuForm.control}
-                          name="startDate"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Start Date</FormLabel>
-                              <FormControl>
-                                <Input type="date" {...field} data-testid="input-start-date" />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={menuForm.control}
-                          name="endDate"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>End Date</FormLabel>
-                              <FormControl>
-                                <Input type="date" {...field} data-testid="input-end-date" />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
-
-                      <FormField
-                        control={menuForm.control}
-                        name="status"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Status</FormLabel>
-                            <Select value={field.value} onValueChange={field.onChange}>
-                              <FormControl>
-                                <SelectTrigger data-testid="select-status">
-                                  <SelectValue placeholder="Select status" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                <SelectItem value="draft">Draft</SelectItem>
-                                <SelectItem value="active">Active</SelectItem>
-                                <SelectItem value="archived">Archived</SelectItem>
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <div className="flex justify-end gap-3 pt-4">
-                        <Button type="button" variant="outline" onClick={() => setAddMenuDialogOpen(false)}>Cancel</Button>
-                        <Button type="submit" disabled={createMenuMutation.isPending} data-testid="button-save-menu">
-                          {createMenuMutation.isPending ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />Creating...</>) : "Create Menu"}
-                        </Button>
-                      </div>
-                    </form>
-                  </Form>
-                </DialogContent>
-              </Dialog>
+              <h2 className="text-xl font-semibold">My Schedule</h2>
+              <p className="text-sm text-muted-foreground">Click on any day to add your food offerings</p>
             </div>
 
-            {menusLoading ? (
-              <div className="space-y-4">
-                {[1, 2].map((i) => (<Card key={i}><CardContent className="py-4"><Skeleton className="h-24" /></CardContent></Card>))}
-              </div>
-            ) : !chefMenus || chefMenus.length === 0 ? (
-              <Card>
-                <CardContent className="py-12 text-center">
-                  <Calendar className="h-12 w-12 mx-auto text-muted-foreground/30 mb-4" />
-                  <h3 className="font-medium mb-2">No Menus Yet</h3>
-                  <p className="text-muted-foreground text-sm mb-4">Create your first menu to start selling.</p>
-                  <Button onClick={() => setAddMenuDialogOpen(true)} data-testid="button-add-first-menu">
-                    <Plus className="h-4 w-4 mr-2" />Create Your First Menu
-                  </Button>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="space-y-4">
-                {chefMenus.map((menu) => {
-                  const menuItemIds = getMenuItemIds(menu);
-                  const itemCount = menuItemIds.length;
+            {/* Calendar-based day selection */}
+            <div className="space-y-3">
+              {(() => {
+                const today = new Date();
+                const upcomingDays = eachDayOfInterval({
+                  start: today,
+                  end: new Date(today.getTime() + 13 * 24 * 60 * 60 * 1000) // 14 days
+                });
+                
+                return upcomingDays.map((day) => {
+                  const dateKey = format(day, "yyyy-MM-dd");
+                  const existingSlot = selectedChef?.daySlots?.find(
+                    (slot: DaySlot) => format(new Date(slot.date), "yyyy-MM-dd") === dateKey
+                  );
+                  const isExpanded = expandedDays.has(dateKey);
+                  const itemCount = existingSlot?.items?.length || 0;
+                  const isToday = format(day, "yyyy-MM-dd") === format(today, "yyyy-MM-dd");
                   
                   return (
-                    <Card key={menu.id}>
-                      <CardHeader className="pb-3">
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <CardTitle className="text-lg">{menu.title}</CardTitle>
-                              <Badge variant={menu.status === "active" ? "default" : menu.status === "draft" ? "secondary" : "outline"}>
-                                {menu.status.charAt(0).toUpperCase() + menu.status.slice(1)}
-                              </Badge>
-                            </div>
-                            {menu.description && (
-                              <CardDescription className="mt-1">{menu.description}</CardDescription>
+                    <Card key={dateKey} className={isToday ? "ring-2 ring-primary/20" : ""}>
+                      <div 
+                        className="flex items-center justify-between p-4 cursor-pointer"
+                        onClick={() => setExpandedDays(prev => {
+                          const next = new Set(prev);
+                          if (next.has(dateKey)) next.delete(dateKey);
+                          else next.add(dateKey);
+                          return next;
+                        })}
+                        data-testid={`day-row-${dateKey}`}
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className="text-center w-12">
+                            <p className="text-xs text-muted-foreground uppercase">{format(day, "EEE")}</p>
+                            <p className="text-lg font-semibold">{format(day, "d")}</p>
+                          </div>
+                          <div>
+                            <p className="font-medium">
+                              {format(day, "MMMM d, yyyy")}
+                              {isToday && <Badge variant="outline" className="ml-2">Today</Badge>}
+                            </p>
+                            {existingSlot ? (
+                              <p className="text-sm text-muted-foreground">
+                                {itemCount} item{itemCount !== 1 ? "s" : ""} • Orders by {format(new Date(existingSlot.orderCutoffDate), "MMM d")}
+                              </p>
+                            ) : (
+                              <p className="text-sm text-muted-foreground">No offerings scheduled</p>
                             )}
                           </div>
-                          <div className="flex gap-1 shrink-0">
-                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleManageDaySlots(menu)} data-testid={`button-manage-days-${menu.id}`} title="Manage Days">
-                              <CalendarDays className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEditMenu(menu)} data-testid={`button-edit-menu-${menu.id}`}>
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setDeleteMenuId(menu.id)} data-testid={`button-delete-menu-${menu.id}`}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
                         </div>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground">
-                          {menu.startDate && menu.endDate && (
-                            <span>{format(new Date(menu.startDate), "MMM d")} - {format(new Date(menu.endDate), "MMM d, yyyy")}</span>
+                        <div className="flex items-center gap-2">
+                          {existingSlot && (
+                            <Badge variant="default">{itemCount} item{itemCount !== 1 ? "s" : ""}</Badge>
                           )}
-                          <span>{menu.daySlots?.length || 0} day{(menu.daySlots?.length || 0) !== 1 ? "s" : ""}</span>
-                          <span>{itemCount} item{itemCount !== 1 ? "s" : ""}</span>
+                          {isExpanded ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
                         </div>
-                      </CardContent>
+                      </div>
+                      
+                      {/* Expanded item assignment section */}
+                      {isExpanded && (
+                        <CardContent className="pt-0 border-t">
+                          {!existingSlot ? (
+                            <div className="py-4">
+                              <p className="text-sm text-muted-foreground mb-3">Set up offerings for this day:</p>
+                              <div className="flex items-center gap-3 mb-4">
+                                <label className="text-sm whitespace-nowrap">Order cutoff:</label>
+                                <Input
+                                  type="date"
+                                  defaultValue={format(new Date(day.getTime() - 86400000), "yyyy-MM-dd")}
+                                  className="w-auto"
+                                  id={`cutoff-new-${dateKey}`}
+                                  data-testid={`input-new-cutoff-${dateKey}`}
+                                />
+                                <Button 
+                                  size="sm"
+                                  onClick={async () => {
+                                    const cutoffInput = document.getElementById(`cutoff-new-${dateKey}`) as HTMLInputElement;
+                                    const cutoffDate = cutoffInput?.value || format(new Date(day.getTime() - 86400000), "yyyy-MM-dd");
+                                    await createDaySlotMutation.mutateAsync({
+                                      chefId: selectedChef!.id,
+                                      date: dateKey,
+                                      orderCutoffDate: cutoffDate,
+                                    });
+                                  }}
+                                  disabled={createDaySlotMutation.isPending}
+                                  data-testid={`button-enable-day-${dateKey}`}
+                                >
+                                  {createDaySlotMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Enable Day"}
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="py-4 space-y-4">
+                              {/* Order cutoff editor */}
+                              <div className="flex items-center gap-3">
+                                <label className="text-sm text-muted-foreground whitespace-nowrap">Order cutoff:</label>
+                                <Input
+                                  type="date"
+                                  value={format(new Date(existingSlot.orderCutoffDate), "yyyy-MM-dd")}
+                                  className="w-auto"
+                                  onChange={async (e) => {
+                                    if (e.target.value) {
+                                      await updateDaySlotMutation.mutateAsync({
+                                        id: existingSlot.id,
+                                        orderCutoffDate: e.target.value,
+                                      });
+                                    }
+                                  }}
+                                  data-testid={`input-cutoff-${dateKey}`}
+                                />
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-destructive ml-auto"
+                                  onClick={async () => {
+                                    await deleteDaySlotMutation.mutateAsync(existingSlot.id);
+                                    setExpandedDays(prev => { const next = new Set(prev); next.delete(dateKey); return next; });
+                                  }}
+                                  disabled={deleteDaySlotMutation.isPending}
+                                  data-testid={`button-remove-day-${dateKey}`}
+                                >
+                                  <Trash2 className="h-4 w-4 mr-1" />
+                                  Remove Day
+                                </Button>
+                              </div>
+                              
+                              {/* Item checkboxes */}
+                              <div>
+                                <p className="text-sm font-medium mb-2">Select items to offer:</p>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                  {chefMenuItems && chefMenuItems.length > 0 ? (
+                                    chefMenuItems.map((item) => {
+                                      const isAssigned = existingSlot.items?.some((i: MenuItemWithDetails) => i.id === item.id) || false;
+                                      return (
+                                        <div key={item.id} className="flex items-center gap-3 p-3 rounded-lg border">
+                                          <Checkbox
+                                            checked={isAssigned}
+                                            onCheckedChange={async () => {
+                                              await toggleItemAssignment(existingSlot.id, item.id, isAssigned);
+                                            }}
+                                            disabled={assignItemToDaySlotMutation.isPending || removeItemFromDaySlotMutation.isPending}
+                                            data-testid={`checkbox-item-${dateKey}-${item.id}`}
+                                          />
+                                          <div className="min-w-0 flex-1">
+                                            <p className="font-medium truncate">{item.title}</p>
+                                            <p className="text-sm text-muted-foreground">${Number(item.price).toFixed(2)}</p>
+                                          </div>
+                                        </div>
+                                      );
+                                    })
+                                  ) : (
+                                    <p className="col-span-2 text-sm text-muted-foreground py-4">
+                                      No food items yet. Create some items in the "Food Items" tab first.
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </CardContent>
+                      )}
                     </Card>
                   );
-                })}
-              </div>
-            )}
+                });
+              })()}
+            </div>
           </TabsContent>
 
           <TabsContent value="prep" className="space-y-6">
