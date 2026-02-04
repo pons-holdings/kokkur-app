@@ -1,0 +1,93 @@
+# Project Name: Kokkur - Local Culinary Marketplace (MVP)
+
+## 1. Project Overview & Role
+You are an expert Senior Full-Stack Engineer and Product Architect. 
+Your goal is to build "Kokkur," a two-sided marketplace web application connecting local independent chefs (Supply) with local customers (Demand).
+**Core Value Prop:** Extreme transparency on ingredients/allergens and hyper-local discovery.
+
+## 2. Technical Stack (Strict)
+* **Framework:** Next.js (App Router)
+* **Language:** TypeScript
+* **Styling:** Tailwind CSS + Lucide React (Icons)
+* **UI Components:** Shadcn/ui (Focus on a clean, "emerald" and "slate" aesthetic).
+* **Database:** PostgreSQL (Supabase or Replit DB) with Drizzle ORM.
+* **Auth:** NextAuth.js or simple custom auth (Email/Password) supporting two roles: `CHEF` and `BUYER`.
+* **Maps/Geo:** use `geolib` for distance calculations. Do not use Google Maps API yet (keep it lightweight).
+
+## 3. Data Model (Schema Design)
+The database structure is critical for our filtering logic.
+
+* **Users:** ID, Email, PasswordHash, Role (Chef/Buyer), Name.
+* **ChefProfile:**
+    * Linked to UserID.
+    * `Slug` (Unique string for URL, e.g., 'chef-maria').
+    * `Bio`, `ProfileImageURL`, `CuisineTags` (Array).
+    * `LocationLat`, `LocationLong` (Float).
+    * `ServiceRadius` (Integer, in miles).
+    * `FulfillmentMethods` (Enum: Pickup, Delivery, Both).
+    * `DeliveryFee` (Float).
+* **UserFavorites:**
+    * Linking table between `BuyerID` and `ChefID`.
+* **Menus:**
+    * Linked to ChefProfile.
+    * `Title` (e.g., "Week of Oct 12"), `OrderCutoffDate`, `FulfillmentDate`.
+    * `Status` (Draft, Active, Archived).
+* **MenuItems:**
+    * Linked to Menu.
+    * `Title`, `Description`, `Price`, `ImageURL`.
+    * `StockQuantity` (Integer).
+    * `UnitType` (e.g., "Per Tray", "Per Meal").
+* **Ingredients:**
+    * `Name` (Unique).
+* **Allergens:**
+    * `Name` (e.g., Peanuts, Shellfish, Gluten).
+* **ItemIngredients / ItemAllergens:**
+    * Many-to-Many join tables linking MenuItems to Ingredients/Allergens.
+* **Orders:**
+    * `BuyerID`, `ChefID`, `TotalAmount`, `Status` (Pending, Paid, Completed).
+    * `FulfillmentMethod` (Pickup/Delivery).
+    * `DeliveryAddress`.
+
+## 4. Key Features & Logic Requirements
+
+### A. The Chef Storefront (Profile)
+* Create a dynamic route `/chef/[slug]`.
+* Display the Chef's Bio, Location (approximate), and **Active Menus**.
+* If a Buyer is logged in, show a "Heart/Favorite" button. Toggling this adds the Chef to the user's favorites list.
+
+### B. The "Safe Search" Engine (Home Page)
+1.  **Location Gating:** On load, ask for User's Zip Code (convert to Lat/Long using a mock utility or simple API).
+2.  **Distance Logic:** specific logic using `geolib`. Only show chefs where:
+    `Distance(UserLatLong, ChefLatLong) <= Chef.ServiceRadius`.
+3.  **Dietary Filters:** Sidebar filters for "Allergens to Exclude."
+    * *Logic:* If User checks "Exclude Peanuts," query the DB to hide ANY MenuItems linked to the "Peanuts" Allergen.
+
+### C. Ordering & Logistics
+1.  **Mixed Cart Prevention:** A user can only have items from **one** chef in their cart at a time. If they try to add an item from a different chef, show a modal: "Start a new order? This will clear your current cart."
+2.  **Stock Management:** When an order is placed, decrement the `StockQuantity` of that item.
+3.  **Checkout:** Create a mock checkout page.
+    * Input: Delivery Address.
+    * Validation: Check if Delivery Address is within Chef's Radius. If not, error: "Address out of delivery range."
+
+### D. The Chef Dashboard
+1.  **Menu Creator:** A form to add items. Crucially, include a **Multi-Select** for Allergens.
+2.  **Prep List View:** A view that aggregates all "Pending" orders for the current active menu and sums up the totals (e.g., "You need to make 15 Lasagnas total").
+
+## 5. Implementation Steps for AI
+1.  **Scaffold:** Set up Next.js + Drizzle + Postgres.
+2.  **Schema:** Create the tables defined above.
+3.  **Seed Data (Crucial):** Create a seed script that generates:
+    * 3 Chefs with different lat/long coordinates (spaced 5-10 miles apart).
+    * 1 Buyer User.
+    * 20 Ingredients and standard FDA Allergens.
+    * Active Menus for each chef with diverse allergen profiles (so we can test filtering).
+4.  **Frontend:** Build the Home Search, Chef Profile, and Dashboard views.
+5.  **Logic:** Implement the geospatial filter and allergen filter hooks.
+
+## 6. Design System
+* **Primary Color:** Emerald-600 (Food, Freshness).
+* **Secondary:** Slate-900 (Text).
+* **Typography:** Sans-serif, clean, legible.
+* **Cards:** Use Shadcn Cards for Chef Profiles and Menu Items.
+
+Refuse to build generic "food delivery" features like driver tracking. Stick strictly to the "Chef-Managed" logic defined above.
