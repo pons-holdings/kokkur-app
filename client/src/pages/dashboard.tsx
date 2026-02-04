@@ -74,7 +74,7 @@ import { IngredientTypeahead } from "@/components/ingredient-typeahead";
 import { ServingOptionsEditor, type ServingOptionInput } from "@/components/serving-options-editor";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { ChefProfileWithDaySlots, Allergen, Ingredient, OrderWithItems, MenuItem, MenuItemWithDetails, MenuItemWithAssignment, ServingOption } from "@shared/schema";
+import type { ChefProfileWithDaySlots, Allergen, Ingredient, OrderWithItems, MenuItem, MenuItemWithDetails, MenuItemWithAssignment, ServingOption, AssignedServingOptionWithDetails } from "@shared/schema";
 
 const servingOptionSchema = z.object({
   id: z.number().optional(),
@@ -124,6 +124,12 @@ export default function Dashboard() {
   const [addDaySlotCutoff, setAddDaySlotCutoff] = useState("");
   const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set());
   const [itemSearchQuery, setItemSearchQuery] = useState("");
+  
+  // Serving size selection dialog state
+  const [servingSizeDialogOpen, setServingSizeDialogOpen] = useState(false);
+  const [pendingItemToAdd, setPendingItemToAdd] = useState<{ item: MenuItemWithDetails; daySlotId: number; dateKey: string } | null>(null);
+  const [selectedServingSizes, setSelectedServingSizes] = useState<Map<number, { selected: boolean; stockLimited: boolean; stockQuantity: number }>>(new Map());
+  
   const { toast } = useToast();
 
   const { data: chefs, isLoading: chefsLoading } = useQuery<ChefProfileWithDaySlots[]>({
@@ -243,11 +249,10 @@ export default function Dashboard() {
   });
 
   const assignItemToDaySlotMutation = useMutation({
-    mutationFn: async ({ daySlotId, itemId, stockLimited, stockQuantity }: { daySlotId: number; itemId: number; stockLimited?: boolean; stockQuantity?: number }) => {
-      return apiRequest("POST", `/api/day-slots/${daySlotId}/items/${itemId}`, { stockLimited, stockQuantity });
+    mutationFn: async ({ daySlotId, itemId }: { daySlotId: number; itemId: number }) => {
+      return apiRequest("POST", `/api/day-slots/${daySlotId}/items/${itemId}`);
     },
     onSuccess: () => {
-      toast({ title: "Item added", description: "Item has been added to the day." });
       queryClient.invalidateQueries({ queryKey: ["/api/chefs"] });
       queryClient.invalidateQueries({ queryKey: ["/api/menus/chef", selectedChef?.id] });
     },
@@ -255,10 +260,22 @@ export default function Dashboard() {
       toast({ title: "Error adding item", description: error.message, variant: "destructive" });
     },
   });
-
-  const updateAssignmentMutation = useMutation({
-    mutationFn: async ({ daySlotId, itemId, stockLimited, stockQuantity }: { daySlotId: number; itemId: number; stockLimited: boolean; stockQuantity?: number }) => {
-      return apiRequest("PATCH", `/api/day-slots/${daySlotId}/items/${itemId}`, { stockLimited, stockQuantity });
+  
+  const addAssignmentServingOptionMutation = useMutation({
+    mutationFn: async ({ assignmentId, servingOptionId, stockLimited, stockQuantity }: { assignmentId: number; servingOptionId: number; stockLimited?: boolean; stockQuantity?: number }) => {
+      return apiRequest("POST", `/api/assignments/${assignmentId}/serving-options`, { servingOptionId, stockLimited, stockQuantity });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/chefs"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error adding serving option", description: error.message, variant: "destructive" });
+    },
+  });
+  
+  const updateAssignmentServingOptionMutation = useMutation({
+    mutationFn: async ({ id, stockLimited, stockQuantity }: { id: number; stockLimited: boolean; stockQuantity?: number }) => {
+      return apiRequest("PATCH", `/api/assignment-serving-options/${id}`, { stockLimited, stockQuantity });
     },
     onSuccess: () => {
       toast({ title: "Stock updated", description: "Stock settings have been updated." });
@@ -266,6 +283,19 @@ export default function Dashboard() {
     },
     onError: (error: Error) => {
       toast({ title: "Error updating stock", description: error.message, variant: "destructive" });
+    },
+  });
+  
+  const removeAssignmentServingOptionMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return apiRequest("DELETE", `/api/assignment-serving-options/${id}`);
+    },
+    onSuccess: () => {
+      toast({ title: "Serving option removed", description: "Serving option has been removed from this day." });
+      queryClient.invalidateQueries({ queryKey: ["/api/chefs"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error removing serving option", description: error.message, variant: "destructive" });
     },
   });
 
@@ -375,12 +405,65 @@ export default function Dashboard() {
     return freshSlot?.items?.map((item: MenuItemWithDetails) => item.id) || [];
   };
 
-  const toggleItemAssignment = async (daySlotId: number, itemId: number, isAssigned: boolean) => {
-    if (isAssigned) {
-      await removeItemFromDaySlotMutation.mutateAsync({ daySlotId, itemId });
-    } else {
-      await assignItemToDaySlotMutation.mutateAsync({ daySlotId, itemId });
+  // Open serving size dialog when adding an item
+  const handleAddItemToDay = async (item: MenuItemWithDetails, daySlotId: number | null, dateKey: string) => {
+    // If no day slot exists, create one first
+    let slotId = daySlotId;
+    if (!slotId && selectedChef) {
+      const cutoffDate = format(new Date(new Date(dateKey).getTime() - 86400000), "yyyy-MM-dd");
+      const response = await createDaySlotMutation.mutateAsync({
+        chefId: selectedChef.id,
+        date: dateKey,
+        orderCutoffDate: cutoffDate,
+      });
+      const daySlot = await (response as Response).json();
+      slotId = daySlot.id;
     }
+    
+    if (!slotId) return;
+    
+    // Initialize serving size selections with all options selected by default
+    const initialSelections = new Map<number, { selected: boolean; stockLimited: boolean; stockQuantity: number }>();
+    (item.servingOptions || []).forEach(opt => {
+      initialSelections.set(opt.id, { selected: true, stockLimited: false, stockQuantity: 10 });
+    });
+    setSelectedServingSizes(initialSelections);
+    setPendingItemToAdd({ item, daySlotId: slotId, dateKey });
+    setServingSizeDialogOpen(true);
+  };
+  
+  // Confirm adding item with selected serving sizes
+  const confirmAddItemWithServingSizes = async () => {
+    if (!pendingItemToAdd) return;
+    
+    const { item, daySlotId } = pendingItemToAdd;
+    
+    // First create the assignment
+    const response = await assignItemToDaySlotMutation.mutateAsync({ daySlotId, itemId: item.id });
+    const assignment = await (response as Response).json();
+    const assignmentId = assignment.id;
+    
+    // Then add each selected serving option with its stock settings
+    const selectedOptions = Array.from(selectedServingSizes.entries())
+      .filter(([_, settings]) => settings.selected);
+    
+    for (const [servingOptionId, settings] of selectedOptions) {
+      await addAssignmentServingOptionMutation.mutateAsync({
+        assignmentId,
+        servingOptionId,
+        stockLimited: settings.stockLimited,
+        stockQuantity: settings.stockLimited ? settings.stockQuantity : undefined,
+      });
+    }
+    
+    toast({ title: "Item added", description: `${item.title} has been added to this day.` });
+    setServingSizeDialogOpen(false);
+    setPendingItemToAdd(null);
+    setSelectedServingSizes(new Map());
+  };
+
+  const handleRemoveItemFromDay = async (daySlotId: number, itemId: number) => {
+    await removeItemFromDaySlotMutation.mutateAsync({ daySlotId, itemId });
   };
 
   const handleDeleteDaySlot = async (daySlotId: number) => {
@@ -858,39 +941,9 @@ export default function Dashboard() {
                       {/* Expanded item assignment section */}
                       {isExpanded && (
                         <CardContent className="pt-0 border-t">
-                          {!existingSlot ? (
-                            <div className="py-4">
-                              <p className="text-sm text-muted-foreground mb-3">Set up offerings for this day:</p>
-                              <div className="flex items-center gap-3 mb-4">
-                                <label className="text-sm whitespace-nowrap">Order cutoff:</label>
-                                <Input
-                                  type="date"
-                                  defaultValue={format(new Date(day.getTime() - 86400000), "yyyy-MM-dd")}
-                                  className="w-auto"
-                                  id={`cutoff-new-${dateKey}`}
-                                  data-testid={`input-new-cutoff-${dateKey}`}
-                                />
-                                <Button 
-                                  size="sm"
-                                  onClick={async () => {
-                                    const cutoffInput = document.getElementById(`cutoff-new-${dateKey}`) as HTMLInputElement;
-                                    const cutoffDate = cutoffInput?.value || format(new Date(day.getTime() - 86400000), "yyyy-MM-dd");
-                                    await createDaySlotMutation.mutateAsync({
-                                      chefId: selectedChef!.id,
-                                      date: dateKey,
-                                      orderCutoffDate: cutoffDate,
-                                    });
-                                  }}
-                                  disabled={createDaySlotMutation.isPending}
-                                  data-testid={`button-enable-day-${dateKey}`}
-                                >
-                                  {createDaySlotMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Enable Day"}
-                                </Button>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="py-4 space-y-4">
-                              {/* Order cutoff editor */}
+                          <div className="py-4 space-y-4">
+                            {/* Order cutoff editor - only shown for existing slots */}
+                            {existingSlot && (
                               <div className="flex items-center gap-3">
                                 <label className="text-sm text-muted-foreground whitespace-nowrap">Order cutoff:</label>
                                 <Input
@@ -922,140 +975,135 @@ export default function Dashboard() {
                                   Remove Day
                                 </Button>
                               </div>
-                              
-                              {/* Item search and assignment */}
-                              <div className="space-y-3">
-                                <div className="flex items-center justify-between">
-                                  <p className="text-sm font-medium">Select items to offer:</p>
-                                  {chefMenuItems && chefMenuItems.length > 5 && (
-                                    <div className="relative max-w-xs">
-                                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                      <Input
-                                        placeholder="Search items..."
-                                        value={itemSearchQuery}
-                                        onChange={(e) => setItemSearchQuery(e.target.value)}
-                                        className="pl-8 h-8"
-                                        data-testid={`input-search-items-${dateKey}`}
-                                      />
+                            )}
+                            
+                            {/* Assigned items display */}
+                            {existingSlot && existingSlot.items && existingSlot.items.length > 0 && (
+                              <div className="space-y-2">
+                                <p className="text-sm font-medium">Scheduled items:</p>
+                                <div className="space-y-2">
+                                  {existingSlot.items.map((assignedItem) => (
+                                    <div key={assignedItem.id} className="p-3 rounded-lg border bg-primary/5 border-primary/20">
+                                      <div className="flex items-start gap-3">
+                                        {assignedItem.coverPhoto && (
+                                          <img src={assignedItem.coverPhoto} alt={assignedItem.title} className="w-12 h-12 rounded object-cover flex-shrink-0" />
+                                        )}
+                                        <div className="flex-1 min-w-0">
+                                          <div className="flex items-center justify-between gap-2">
+                                            <p className="font-medium truncate">{assignedItem.title}</p>
+                                            <Button
+                                              variant="ghost"
+                                              size="icon"
+                                              className="h-6 w-6 text-destructive flex-shrink-0"
+                                              onClick={() => handleRemoveItemFromDay(existingSlot.id, assignedItem.id)}
+                                              disabled={removeItemFromDaySlotMutation.isPending}
+                                              data-testid={`button-remove-item-${dateKey}-${assignedItem.id}`}
+                                            >
+                                              <X className="h-4 w-4" />
+                                            </Button>
+                                          </div>
+                                          {/* Assigned serving options */}
+                                          <div className="mt-2 space-y-1">
+                                            {assignedItem.assignedServingOptions && assignedItem.assignedServingOptions.length > 0 ? (
+                                              assignedItem.assignedServingOptions.map((aso) => (
+                                                <div key={aso.id} className="flex items-center justify-between text-sm pl-2 border-l-2 border-muted">
+                                                  <div className="flex items-center gap-2">
+                                                    <span>{aso.servingOption.label}</span>
+                                                    <span className="text-muted-foreground">${aso.servingOption.price.toFixed(2)}</span>
+                                                  </div>
+                                                  <div className="flex items-center gap-2">
+                                                    <Badge variant={aso.stockLimited === 1 ? "secondary" : "outline"} className="text-xs">
+                                                      {aso.stockLimited === 1 ? `${aso.stockQuantity || 0} left` : "Unlimited"}
+                                                    </Badge>
+                                                    <Button
+                                                      variant="ghost"
+                                                      size="icon"
+                                                      className="h-5 w-5 text-destructive"
+                                                      onClick={() => removeAssignmentServingOptionMutation.mutate(aso.id)}
+                                                      disabled={removeAssignmentServingOptionMutation.isPending}
+                                                      data-testid={`button-remove-serving-${aso.id}`}
+                                                    >
+                                                      <X className="h-3 w-3" />
+                                                    </Button>
+                                                  </div>
+                                                </div>
+                                              ))
+                                            ) : (
+                                              <p className="text-xs text-muted-foreground">No serving sizes configured</p>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </div>
                                     </div>
-                                  )}
+                                  ))}
                                 </div>
-                                <div className="grid grid-cols-1 gap-2 max-h-80 overflow-y-auto">
-                                  {chefMenuItems && chefMenuItems.length > 0 ? (
-                                    (() => {
-                                      const query = itemSearchQuery.toLowerCase();
-                                      const filteredItems = chefMenuItems.filter(item =>
-                                        !query ||
+                              </div>
+                            )}
+                            
+                            {/* Search and add items section */}
+                            <div className="space-y-3">
+                              <p className="text-sm font-medium">Add items to this day:</p>
+                              <div className="relative">
+                                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                <Input
+                                  placeholder="Search for items to add..."
+                                  value={itemSearchQuery}
+                                  onChange={(e) => setItemSearchQuery(e.target.value)}
+                                  className="pl-8"
+                                  data-testid={`input-search-items-${dateKey}`}
+                                />
+                              </div>
+                              {itemSearchQuery && (
+                                <div className="grid grid-cols-1 gap-2 max-h-60 overflow-y-auto border rounded-lg p-2">
+                                  {(() => {
+                                    const query = itemSearchQuery.toLowerCase();
+                                    const assignedIds = existingSlot?.items?.map(i => i.id) || [];
+                                    const filteredItems = (chefMenuItems || []).filter(item =>
+                                      !assignedIds.includes(item.id) && (
                                         item.title.toLowerCase().includes(query) ||
                                         item.description?.toLowerCase().includes(query) ||
                                         item.ingredients?.some(i => i.name.toLowerCase().includes(query))
+                                      )
+                                    );
+                                    
+                                    if (filteredItems.length === 0) {
+                                      return (
+                                        <p className="text-sm text-muted-foreground py-2 px-1">
+                                          No items found matching "{itemSearchQuery}"
+                                        </p>
                                       );
-                                      
-                                      if (filteredItems.length === 0) {
-                                        return (
-                                          <p className="text-sm text-muted-foreground py-4">
-                                            No items match "{itemSearchQuery}".
+                                    }
+                                    
+                                    return filteredItems.map((item) => (
+                                      <div key={item.id} className="flex items-center gap-3 p-2 rounded-lg hover-elevate cursor-pointer" onClick={() => handleAddItemToDay(item, existingSlot?.id || null, dateKey)}>
+                                        {item.coverPhoto && (
+                                          <img src={item.coverPhoto} alt={item.title} className="w-10 h-10 rounded object-cover" />
+                                        )}
+                                        <div className="min-w-0 flex-1">
+                                          <p className="font-medium truncate">{item.title}</p>
+                                          <p className="text-sm text-muted-foreground">
+                                            {(() => {
+                                              const opts = item.servingOptions || [];
+                                              if (opts.length === 0) return "No price set";
+                                              if (opts.length === 1) return `$${opts[0].price.toFixed(2)}`;
+                                              const prices = opts.map(o => o.price).sort((a, b) => a - b);
+                                              return `$${prices[0].toFixed(2)} - $${prices[prices.length - 1].toFixed(2)}`;
+                                            })()}
                                           </p>
-                                        );
-                                      }
-                                      
-                                      return filteredItems.map((item) => {
-                                        const assignedItem = existingSlot.items?.find((i) => i.id === item.id);
-                                        const isAssigned = !!assignedItem;
-                                        return (
-                                          <div key={item.id} className={`flex flex-col gap-2 p-3 rounded-lg border ${isAssigned ? 'bg-primary/5 border-primary/20' : ''}`}>
-                                            <div className="flex items-center gap-3">
-                                              <Checkbox
-                                                checked={isAssigned}
-                                                onCheckedChange={async () => {
-                                                  await toggleItemAssignment(existingSlot.id, item.id, isAssigned);
-                                                }}
-                                                disabled={assignItemToDaySlotMutation.isPending || removeItemFromDaySlotMutation.isPending}
-                                                data-testid={`checkbox-item-${dateKey}-${item.id}`}
-                                              />
-                                              {item.coverPhoto && (
-                                                <img src={item.coverPhoto} alt={item.title} className="w-10 h-10 rounded object-cover" />
-                                              )}
-                                              <div className="min-w-0 flex-1">
-                                                <p className="font-medium truncate">{item.title}</p>
-                                                <p className="text-sm text-muted-foreground">
-                                                  {(() => {
-                                                    const opts = item.servingOptions || [];
-                                                    if (opts.length === 0) return "No price set";
-                                                    if (opts.length === 1) return `$${opts[0].price.toFixed(2)}`;
-                                                    const prices = opts.map(o => o.price).sort((a, b) => a - b);
-                                                    return `$${prices[0].toFixed(2)} - $${prices[prices.length - 1].toFixed(2)}`;
-                                                  })()}
-                                                </p>
-                                              </div>
-                                              {isAssigned && assignedItem && (
-                                                <Badge variant={assignedItem.stockLimited === 1 ? "secondary" : "outline"} className="whitespace-nowrap">
-                                                  {assignedItem.stockLimited === 1 
-                                                    ? `${assignedItem.stockQuantity || 0} left` 
-                                                    : "Unlimited"}
-                                                </Badge>
-                                              )}
-                                            </div>
-                                            
-                                            {/* Stock controls - shown when assigned */}
-                                            {isAssigned && assignedItem && (
-                                              <div className="flex items-center gap-3 ml-7 pl-3 border-l-2 border-muted">
-                                                <label className="flex items-center gap-2 text-sm cursor-pointer">
-                                                  <Checkbox
-                                                    checked={assignedItem.stockLimited === 1}
-                                                    onCheckedChange={async (checked) => {
-                                                      await updateAssignmentMutation.mutateAsync({
-                                                        daySlotId: existingSlot.id,
-                                                        itemId: item.id,
-                                                        stockLimited: !!checked,
-                                                        stockQuantity: checked ? (assignedItem.stockQuantity || 10) : undefined
-                                                      });
-                                                    }}
-                                                    disabled={updateAssignmentMutation.isPending}
-                                                    data-testid={`checkbox-stock-limited-${dateKey}-${item.id}`}
-                                                  />
-                                                  <span className="flex items-center gap-1">
-                                                    <Archive className="h-3.5 w-3.5" />
-                                                    Limit stock
-                                                  </span>
-                                                </label>
-                                                {assignedItem.stockLimited === 1 && (
-                                                  <div className="flex items-center gap-2">
-                                                    <Input
-                                                      type="number"
-                                                      min="0"
-                                                      value={assignedItem.stockQuantity || 0}
-                                                      onChange={async (e) => {
-                                                        const qty = parseInt(e.target.value) || 0;
-                                                        await updateAssignmentMutation.mutateAsync({
-                                                          daySlotId: existingSlot.id,
-                                                          itemId: item.id,
-                                                          stockLimited: true,
-                                                          stockQuantity: qty
-                                                        });
-                                                      }}
-                                                      className="w-20 h-7 text-sm"
-                                                      disabled={updateAssignmentMutation.isPending}
-                                                      data-testid={`input-stock-qty-${dateKey}-${item.id}`}
-                                                    />
-                                                    <span className="text-sm text-muted-foreground">available</span>
-                                                  </div>
-                                                )}
-                                              </div>
-                                            )}
-                                          </div>
-                                        );
-                                      });
-                                    })()
-                                  ) : (
-                                    <p className="text-sm text-muted-foreground py-4">
-                                      No food items yet. Create some items in the "My Food Items" tab first.
-                                    </p>
-                                  )}
+                                        </div>
+                                        <Button size="icon" variant="ghost" className="flex-shrink-0" data-testid={`button-add-item-${dateKey}-${item.id}`}>
+                                          <Plus className="h-4 w-4" />
+                                        </Button>
+                                      </div>
+                                    ));
+                                  })()}
                                 </div>
-                              </div>
+                              )}
+                              {!itemSearchQuery && (!existingSlot?.items || existingSlot.items.length === 0) && (
+                                <p className="text-sm text-muted-foreground">Start typing to search for items to add to this day.</p>
+                              )}
                             </div>
-                          )}
+                          </div>
                         </CardContent>
                       )}
                     </Card>
@@ -1377,6 +1425,101 @@ export default function Dashboard() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      
+      {/* Serving Size Selection Dialog */}
+      <Dialog open={servingSizeDialogOpen} onOpenChange={(open) => {
+        if (!open) {
+          setServingSizeDialogOpen(false);
+          setPendingItemToAdd(null);
+          setSelectedServingSizes(new Map());
+        }
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Select Serving Sizes for {pendingItemToAdd?.item.title}</DialogTitle>
+            <DialogDescription>
+              Choose which serving options to offer on {pendingItemToAdd?.dateKey ? format(parseISO(pendingItemToAdd.dateKey), "MMMM d, yyyy") : "this day"} and set stock limits if needed.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 max-h-96 overflow-y-auto">
+            {pendingItemToAdd?.item.servingOptions?.map((opt) => {
+              const settings = selectedServingSizes.get(opt.id) || { selected: false, stockLimited: false, stockQuantity: 10 };
+              return (
+                <div key={opt.id} className={`p-3 rounded-lg border ${settings.selected ? 'bg-primary/5 border-primary/20' : ''}`}>
+                  <div className="flex items-center gap-3">
+                    <Checkbox
+                      checked={settings.selected}
+                      onCheckedChange={(checked) => {
+                        const newMap = new Map(selectedServingSizes);
+                        newMap.set(opt.id, { ...settings, selected: !!checked });
+                        setSelectedServingSizes(newMap);
+                      }}
+                      data-testid={`checkbox-serving-option-${opt.id}`}
+                    />
+                    <div className="flex-1">
+                      <p className="font-medium">{opt.label}</p>
+                      <p className="text-sm text-muted-foreground">${opt.price.toFixed(2)}</p>
+                    </div>
+                  </div>
+                  {settings.selected && (
+                    <div className="mt-3 ml-7 space-y-2">
+                      <label className="flex items-center gap-2 text-sm cursor-pointer">
+                        <Checkbox
+                          checked={settings.stockLimited}
+                          onCheckedChange={(checked) => {
+                            const newMap = new Map(selectedServingSizes);
+                            newMap.set(opt.id, { ...settings, stockLimited: !!checked });
+                            setSelectedServingSizes(newMap);
+                          }}
+                          data-testid={`checkbox-stock-limited-${opt.id}`}
+                        />
+                        <Archive className="h-3.5 w-3.5" />
+                        Limit stock
+                      </label>
+                      {settings.stockLimited && (
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type="number"
+                            min="1"
+                            value={settings.stockQuantity}
+                            onChange={(e) => {
+                              const newMap = new Map(selectedServingSizes);
+                              newMap.set(opt.id, { ...settings, stockQuantity: parseInt(e.target.value) || 1 });
+                              setSelectedServingSizes(newMap);
+                            }}
+                            className="w-20 h-8"
+                            data-testid={`input-stock-quantity-${opt.id}`}
+                          />
+                          <span className="text-sm text-muted-foreground">available</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex justify-end gap-2 pt-4">
+            <Button variant="outline" onClick={() => {
+              setServingSizeDialogOpen(false);
+              setPendingItemToAdd(null);
+              setSelectedServingSizes(new Map());
+            }} data-testid="button-cancel-serving-sizes">
+              Cancel
+            </Button>
+            <Button 
+              onClick={confirmAddItemWithServingSizes}
+              disabled={!Array.from(selectedServingSizes.values()).some(s => s.selected) || assignItemToDaySlotMutation.isPending || addAssignmentServingOptionMutation.isPending}
+              data-testid="button-confirm-serving-sizes"
+            >
+              {(assignItemToDaySlotMutation.isPending || addAssignmentServingOptionMutation.isPending) ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : null}
+              Add to Day
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );
