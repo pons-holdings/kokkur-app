@@ -44,6 +44,9 @@ import {
   AlertTriangle,
   Loader2,
   Check,
+  Upload,
+  ImageIcon,
+  X,
 } from "lucide-react";
 import { Header } from "@/components/header";
 import { useToast } from "@/hooks/use-toast";
@@ -57,6 +60,7 @@ const menuItemSchema = z.object({
   price: z.number().min(0.01, "Price must be greater than 0"),
   stockQuantity: z.number().min(1, "Stock must be at least 1"),
   unitType: z.string().min(1, "Unit type is required"),
+  imageUrl: z.string().optional(),
   allergenIds: z.array(z.number()).default([]),
   ingredientIds: z.array(z.number()).default([]),
 });
@@ -117,10 +121,13 @@ export default function Dashboard() {
       price: 0,
       stockQuantity: 10,
       unitType: "per meal",
+      imageUrl: "",
       allergenIds: [],
       ingredientIds: [],
     },
   });
+
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   const createMenuItemMutation = useMutation({
     mutationFn: async (data: MenuItemForm) => {
@@ -422,6 +429,118 @@ export default function Dashboard() {
                                 <SelectItem value="per pound">Per Pound</SelectItem>
                               </SelectContent>
                             </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="imageUrl"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="flex items-center gap-2">
+                              <ImageIcon className="h-4 w-4" />
+                              Dish Photo
+                            </FormLabel>
+                            <FormDescription>
+                              Upload an appetizing photo of your dish
+                            </FormDescription>
+                            <FormControl>
+                              <div className="space-y-3">
+                                {field.value ? (
+                                  <div className="relative w-full h-40 rounded-md overflow-hidden bg-muted">
+                                    <img
+                                      src={field.value}
+                                      alt="Dish preview"
+                                      className="w-full h-full object-cover"
+                                    />
+                                    <Button
+                                      type="button"
+                                      variant="secondary"
+                                      size="icon"
+                                      className="absolute top-2 right-2 h-8 w-8"
+                                      onClick={() => field.onChange("")}
+                                      data-testid="button-remove-image"
+                                    >
+                                      <X className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-4">
+                                    <label
+                                      htmlFor="image-upload"
+                                      className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-md cursor-pointer hover:border-primary/50 transition-colors"
+                                    >
+                                      {uploadingImage ? (
+                                        <div className="flex flex-col items-center gap-2">
+                                          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                                          <span className="text-sm text-muted-foreground">Uploading...</span>
+                                        </div>
+                                      ) : (
+                                        <div className="flex flex-col items-center gap-2">
+                                          <Upload className="h-8 w-8 text-muted-foreground" />
+                                          <span className="text-sm text-muted-foreground">Click to upload photo</span>
+                                          <span className="text-xs text-muted-foreground">PNG, JPG up to 10MB</span>
+                                        </div>
+                                      )}
+                                      <input
+                                        id="image-upload"
+                                        type="file"
+                                        accept="image/*"
+                                        className="hidden"
+                                        disabled={uploadingImage}
+                                        onChange={async (e) => {
+                                          const file = e.target.files?.[0];
+                                          if (!file) return;
+
+                                          setUploadingImage(true);
+                                          try {
+                                            const urlRes = await fetch("/api/uploads/request-url", {
+                                              method: "POST",
+                                              headers: { "Content-Type": "application/json" },
+                                              body: JSON.stringify({
+                                                name: file.name,
+                                                size: file.size,
+                                                contentType: file.type,
+                                              }),
+                                            });
+
+                                            if (!urlRes.ok) throw new Error("Failed to get upload URL");
+
+                                            const { uploadURL, objectPath } = await urlRes.json();
+
+                                            const uploadRes = await fetch(uploadURL, {
+                                              method: "PUT",
+                                              body: file,
+                                              headers: { "Content-Type": file.type },
+                                            });
+
+                                            if (!uploadRes.ok) throw new Error("Failed to upload image");
+
+                                            field.onChange(objectPath);
+                                            toast({
+                                              title: "Image uploaded",
+                                              description: "Your dish photo has been uploaded successfully.",
+                                            });
+                                          } catch (error) {
+                                            toast({
+                                              title: "Upload failed",
+                                              description: error instanceof Error ? error.message : "Failed to upload image",
+                                              variant: "destructive",
+                                            });
+                                          } finally {
+                                            setUploadingImage(false);
+                                            e.target.value = "";
+                                          }
+                                        }}
+                                        data-testid="input-image-upload"
+                                      />
+                                    </label>
+                                  </div>
+                                )}
+                              </div>
+                            </FormControl>
                             <FormMessage />
                           </FormItem>
                         )}

@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { z } from "zod";
+import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -9,6 +10,8 @@ export async function registerRoutes(
 ): Promise<Server> {
   
   await storage.seedData();
+  
+  registerObjectStorageRoutes(app);
 
   app.get("/api/chefs", async (req, res) => {
     try {
@@ -60,6 +63,7 @@ export async function registerRoutes(
     price: z.number().min(0.01),
     stockQuantity: z.number().min(1),
     unitType: z.string().min(1),
+    imageUrl: z.string().optional(),
     allergenIds: z.array(z.number()).default([]),
     ingredientIds: z.array(z.number()).default([]),
   });
@@ -75,6 +79,7 @@ export async function registerRoutes(
         price: data.price,
         stockQuantity: data.stockQuantity,
         unitType: data.unitType,
+        imageUrl: data.imageUrl,
       });
       
       if (data.allergenIds.length > 0) {
