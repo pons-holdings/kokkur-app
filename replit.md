@@ -2,7 +2,7 @@
 
 ## Overview
 
-Kokkur is a two-sided marketplace web application connecting local independent chefs with local customers. The core value proposition is extreme transparency on ingredients/allergens and hyper-local discovery. The application allows buyers to browse local chefs, view their menus with detailed ingredient and allergen information, and place orders for pickup or delivery.
+Kokkur is a two-sided marketplace web application connecting local independent chefs with local customers. The core value proposition is extreme transparency on ingredients/allergens and hyper-local discovery. The application uses a calendar-based architecture where chefs select dates and assign food items directly to those days, creating dynamic date-based offerings rather than static menus.
 
 ## User Preferences
 
@@ -29,22 +29,25 @@ Preferred communication style: Simple, everyday language.
 - **Database**: PostgreSQL with Drizzle ORM
 - **Schema Location**: `shared/schema.ts` - shared between client and server
 - **Migrations**: Drizzle Kit with migrations output to `/migrations`
-- **Key Entities**: ChefProfiles, Menus, MenuDaySlots, MenuItems, Ingredients, Allergens, Orders, OrderItems, UserFavorites
-- **Join Tables**: ItemIngredients, ItemAllergens, and MenuItemAssignments for many-to-many relationships
+- **Key Entities**: ChefProfiles, DaySlots, MenuItems, Ingredients, Allergens, Orders, OrderItems, UserFavorites
+- **Join Tables**: ItemIngredients, ItemAllergens, and DaySlotItemAssignments for many-to-many relationships
 
-### Menu Structure (Date Range-Based)
-- **Menus use Date Ranges**: Each menu has `startDate` and `endDate` defining the date range it covers
-- **Day Slots**: Menus contain `menu_day_slots` - specific days within the range when food is offered
+### Calendar-Based Scheduling System
+- **Day Slots**: Chefs create day slots directly (no menus) - each representing a date when food is offered
   - Each day slot has a `date` (fulfillment date) and `orderCutoffDate` (last day to order)
-  - Day slots can be updated via PATCH without losing item assignments
-- **Item Assignments**: Menu items are assigned to specific day slots via `menu_item_assignments` table
-  - Items can be assigned to multiple days across different menus
+  - Day slots belong directly to chefs via `chefId`
+- **Item Assignments**: Menu items are assigned to specific day slots via `day_slot_item_assignments` table
+  - Items can be assigned to multiple days
   - Chef's food items remain separate entities owned by the chef
-- **Unified Dashboard Management**: 
-  - Chefs manage menus through a single unified dialog that shows all days in the date range
-  - Each day has a checkbox to enable/disable it (creates/deletes day slot)
-  - Enabled days can be expanded to configure order cutoff and assign items via checkboxes
-  - Edit Food Item dialog includes image upload, allergens, and ingredients (matching create flow)
+- **Dashboard Calendar View**: 
+  - "My Schedule" tab shows upcoming 14 days in a calendar format
+  - Chefs click days to expand and manage offerings for that date
+  - Items can be assigned/unassigned to specific dates via checkboxes
+  - Edit Food Item dialog includes image upload, allergens, and ingredients
+- **Customer Views**:
+  - Home page and chef profile show upcoming dates with available items
+  - Dates are filtered to show only today and future offerings
+  - Items are organized by fulfillment date for easy browsing
 
 ### Geo-Location Features
 - **Distance Calculations**: geolib library for calculating distances between users and chefs
