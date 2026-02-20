@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
   const { chefProfileId, title, orderCutoffDate, fulfillmentDate, status } = await req.json();
 
   // Verify this chef profile belongs to the user
-  const profile = db
+  const profile = await db
     .select()
     .from(chefProfiles)
     .where(eq(chefProfiles.id, chefProfileId))
@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "All fields required" }, { status: 400 });
   }
 
-  const menu = db
+  const menuRows = await db
     .insert(menus)
     .values({
       chefProfileId,
@@ -36,8 +36,7 @@ export async function POST(req: NextRequest) {
       fulfillmentDate,
       status: status || "DRAFT",
     })
-    .returning()
-    .get();
+    .returning();
 
-  return NextResponse.json({ menu });
+  return NextResponse.json({ menu: menuRows[0] });
 }

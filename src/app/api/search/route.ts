@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { chefProfiles, menus, menuItems, itemAllergens, allergens, users } from "@/db/schema";
-import { eq, and, inArray, notInArray, sql } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { zipToLatLong, getDistanceMiles } from "@/lib/geo";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
   const excludeAllergens = searchParams.getAll("exclude");
 
   // Get all chefs with their active menus
-  const allChefs = db
+  const allChefs = await db
     .select({
       chef: chefProfiles,
       userName: users.name,
@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
   const results = [];
 
   for (const row of filteredChefs) {
-    const activeMenus = db
+    const activeMenus = await db
       .select()
       .from(menus)
       .where(and(eq(menus.chefProfileId, row.chef.id), eq(menus.status, "ACTIVE")))
@@ -52,7 +52,7 @@ export async function GET(req: NextRequest) {
     const menuData = [];
 
     for (const menu of activeMenus) {
-      let items = db
+      let items = await db
         .select()
         .from(menuItems)
         .where(eq(menuItems.menuId, menu.id))
@@ -60,7 +60,7 @@ export async function GET(req: NextRequest) {
 
       // If allergens to exclude, filter out items that contain those allergens
       if (excludeAllergens.length > 0) {
-        const allergenRecords = db
+        const allergenRecords = await db
           .select()
           .from(allergens)
           .where(inArray(allergens.name, excludeAllergens))
@@ -69,33 +69,34 @@ export async function GET(req: NextRequest) {
         const allergenIds = allergenRecords.map((a) => a.id);
 
         if (allergenIds.length > 0) {
-          // Find item IDs that have any of the excluded allergens
-          const excludedItemIds = db
+          const excludedItems = await db
             .select({ itemId: itemAllergens.itemId })
             .from(itemAllergens)
             .where(inArray(itemAllergens.allergenId, allergenIds))
-            .all()
-            .map((r) => r.itemId);
+            .all();
 
+          const excludedItemIds = excludedItems.map((r) => r.itemId);
           items = items.filter((item) => !excludedItemIds.includes(item.id));
         }
       }
 
       if (items.length > 0) {
         // Get allergens for each item
-        const itemsWithAllergens = items.map((item) => {
-          const itemAllergenList = db
-            .select({ name: allergens.name })
-            .from(itemAllergens)
-            .innerJoin(allergens, eq(allergens.id, itemAllergens.allergenId))
-            .where(eq(itemAllergens.itemId, item.id))
-            .all();
+        const itemsWithAllergens = await Promise.all(
+          items.map(async (item) => {
+            const itemAllergenList = await db
+              .select({ name: allergens.name })
+              .from(itemAllergens)
+              .innerJoin(allergens, eq(allergens.id, itemAllergens.allergenId))
+              .where(eq(itemAllergens.itemId, item.id))
+              .all();
 
-          return {
-            ...item,
-            allergens: itemAllergenList.map((a) => a.name),
-          };
-        });
+            return {
+              ...item,
+              allergens: itemAllergenList.map((a) => a.name),
+            };
+          })
+        );
 
         menuData.push({
           ...menu,
@@ -130,7 +131,7 @@ export async function GET(req: NextRequest) {
   }
 
   // Get all allergens for the filter sidebar
-  const allAllergens = db.select().from(allergens).all();
+  const allAllergens = await db.select().from(allergens).all();
 
   return NextResponse.json({ results, allergens: allAllergens });
 }

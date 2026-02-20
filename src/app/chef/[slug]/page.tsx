@@ -9,7 +9,7 @@ export default async function ChefPage({ params }: { params: Promise<{ slug: str
   const { slug } = await params;
   const session = await getSession();
 
-  const chefRow = db
+  const chefRow = await db
     .select({
       chef: chefProfiles,
       userName: users.name,
@@ -21,39 +21,43 @@ export default async function ChefPage({ params }: { params: Promise<{ slug: str
 
   if (!chefRow) notFound();
 
-  const activeMenus = db
+  const activeMenus = await db
     .select()
     .from(menus)
     .where(and(eq(menus.chefProfileId, chefRow.chef.id), eq(menus.status, "ACTIVE")))
     .all();
 
-  const menuData = activeMenus.map((menu) => {
-    const items = db.select().from(menuItems).where(eq(menuItems.menuId, menu.id)).all();
+  const menuData = await Promise.all(
+    activeMenus.map(async (menu) => {
+      const items = await db.select().from(menuItems).where(eq(menuItems.menuId, menu.id)).all();
 
-    const itemsWithDetails = items.map((item) => {
-      const itemAllergenList = db
-        .select({ name: allergens.name })
-        .from(itemAllergens)
-        .innerJoin(allergens, eq(allergens.id, itemAllergens.allergenId))
-        .where(eq(itemAllergens.itemId, item.id))
-        .all();
+      const itemsWithDetails = await Promise.all(
+        items.map(async (item) => {
+          const itemAllergenList = await db
+            .select({ name: allergens.name })
+            .from(itemAllergens)
+            .innerJoin(allergens, eq(allergens.id, itemAllergens.allergenId))
+            .where(eq(itemAllergens.itemId, item.id))
+            .all();
 
-      const itemIngredientList = db
-        .select({ name: ingredients.name })
-        .from(itemIngredients)
-        .innerJoin(ingredients, eq(ingredients.id, itemIngredients.ingredientId))
-        .where(eq(itemIngredients.itemId, item.id))
-        .all();
+          const itemIngredientList = await db
+            .select({ name: ingredients.name })
+            .from(itemIngredients)
+            .innerJoin(ingredients, eq(ingredients.id, itemIngredients.ingredientId))
+            .where(eq(itemIngredients.itemId, item.id))
+            .all();
 
-      return {
-        ...item,
-        allergens: itemAllergenList.map((a) => a.name),
-        ingredients: itemIngredientList.map((i) => i.name),
-      };
-    });
+          return {
+            ...item,
+            allergens: itemAllergenList.map((a) => a.name),
+            ingredients: itemIngredientList.map((i) => i.name),
+          };
+        })
+      );
 
-    return { ...menu, items: itemsWithDetails };
-  });
+      return { ...menu, items: itemsWithDetails };
+    })
+  );
 
   const chefData = {
     ...chefRow.chef,

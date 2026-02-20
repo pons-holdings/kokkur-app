@@ -1,14 +1,11 @@
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
+import { createClient } from "@libsql/client";
+import { drizzle } from "drizzle-orm/libsql";
 import * as schema from "./schema";
-import path from "path";
 
-const dbPath = path.join(process.cwd(), "kokkur.db");
-const sqlite = new Database(dbPath);
+const client = createClient({
+  url: process.env.TURSO_DATABASE_URL || "file:kokkur.db",
+  authToken: process.env.TURSO_AUTH_TOKEN,
+});
 
-// Enable WAL mode for better concurrency
-sqlite.pragma("journal_mode = WAL");
-sqlite.pragma("foreign_keys = ON");
-
-export const db = drizzle(sqlite, { schema });
+export const db = drizzle(client, { schema });
 export type Database = typeof db;

@@ -17,7 +17,7 @@ export type SessionUser = {
 };
 
 export async function signIn(email: string, password: string): Promise<SessionUser | null> {
-  const user = db
+  const user = await db
     .select()
     .from(users)
     .where(eq(users.email, email))

@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "chefId required" }, { status: 400 });
   }
 
-  const existing = db
+  const existing = await db
     .select()
     .from(userFavorites)
     .where(and(eq(userFavorites.buyerId, session.id), eq(userFavorites.chefId, parseInt(chefId))))
@@ -35,19 +35,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "chefId required" }, { status: 400 });
   }
 
-  const existing = db
+  const existing = await db
     .select()
     .from(userFavorites)
     .where(and(eq(userFavorites.buyerId, session.id), eq(userFavorites.chefId, chefId)))
     .get();
 
   if (existing) {
-    db.delete(userFavorites)
+    await db.delete(userFavorites)
       .where(and(eq(userFavorites.buyerId, session.id), eq(userFavorites.chefId, chefId)))
       .run();
     return NextResponse.json({ isFavorite: false });
   } else {
-    db.insert(userFavorites).values({ buyerId: session.id, chefId }).run();
+    await db.insert(userFavorites).values({ buyerId: session.id, chefId }).run();
     return NextResponse.json({ isFavorite: true });
   }
 }

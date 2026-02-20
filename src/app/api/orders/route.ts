@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Validate chef exists
-  const chef = db.select().from(chefProfiles).where(eq(chefProfiles.id, chefId)).get();
+  const chef = await db.select().from(chefProfiles).where(eq(chefProfiles.id, chefId)).get();
   if (!chef) {
     return NextResponse.json({ error: "Chef not found" }, { status: 404 });
   }
@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
   const validatedItems: { menuItemId: number; quantity: number; priceAtTime: number }[] = [];
 
   for (const item of items) {
-    const menuItem = db.select().from(menuItems).where(eq(menuItems.id, item.menuItemId)).get();
+    const menuItem = await db.select().from(menuItems).where(eq(menuItems.id, item.menuItemId)).get();
     if (!menuItem) {
       return NextResponse.json({ error: `Item ${item.menuItemId} not found` }, { status: 404 });
     }
@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Create order
-  const order = db
+  const orderRows = await db
     .insert(orders)
     .values({
       buyerId: session.id,
@@ -87,21 +87,23 @@ export async function POST(req: NextRequest) {
       deliveryAddress: deliveryAddress || null,
       status: "PENDING",
     })
-    .returning()
-    .get();
+    .returning();
+  const order = orderRows[0];
 
   // Create order items
   for (const item of validatedItems) {
-    db.insert(orderItems).values({ orderId: order.id, ...item }).run();
+    await db.insert(orderItems).values({ orderId: order.id, ...item }).run();
   }
 
   // Decrement stock
   for (const item of validatedItems) {
-    const current = db.select().from(menuItems).where(eq(menuItems.id, item.menuItemId)).get()!;
-    db.update(menuItems)
-      .set({ stockQuantity: current.stockQuantity - item.quantity })
-      .where(eq(menuItems.id, item.menuItemId))
-      .run();
+    const current = await db.select().from(menuItems).where(eq(menuItems.id, item.menuItemId)).get();
+    if (current) {
+      await db.update(menuItems)
+        .set({ stockQuantity: current.stockQuantity - item.quantity })
+        .where(eq(menuItems.id, item.menuItemId))
+        .run();
+    }
   }
 
   return NextResponse.json({ order });

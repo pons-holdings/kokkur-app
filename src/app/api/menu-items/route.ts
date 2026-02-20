@@ -13,12 +13,12 @@ export async function POST(req: NextRequest) {
   const { menuId, title, description, price, stockQuantity, unitType, allergenIds } = await req.json();
 
   // Verify menu belongs to this chef
-  const menu = db.select().from(menus).where(eq(menus.id, menuId)).get();
+  const menu = await db.select().from(menus).where(eq(menus.id, menuId)).get();
   if (!menu) {
     return NextResponse.json({ error: "Menu not found" }, { status: 404 });
   }
 
-  const profile = db
+  const profile = await db
     .select()
     .from(chefProfiles)
     .where(eq(chefProfiles.id, menu.chefProfileId))
@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Title, price, and stock are required" }, { status: 400 });
   }
 
-  const item = db
+  const itemRows = await db
     .insert(menuItems)
     .values({
       menuId,
@@ -42,13 +42,13 @@ export async function POST(req: NextRequest) {
       stockQuantity,
       unitType: unitType || "Per Meal",
     })
-    .returning()
-    .get();
+    .returning();
+  const item = itemRows[0];
 
   // Add allergen associations
   if (allergenIds && allergenIds.length > 0) {
     for (const allergenId of allergenIds) {
-      db.insert(itemAllergens).values({ itemId: item.id, allergenId }).run();
+      await db.insert(itemAllergens).values({ itemId: item.id, allergenId }).run();
     }
   }
 

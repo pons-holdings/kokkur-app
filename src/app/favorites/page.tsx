@@ -12,7 +12,7 @@ export default async function FavoritesPage() {
   const session = await getSession();
   if (!session || session.role !== "BUYER") redirect("/login");
 
-  const favorites = db
+  const favorites = await db
     .select({
       chef: chefProfiles,
       chefName: users.name,

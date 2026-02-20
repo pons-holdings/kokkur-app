@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const passwordHash = hashSync(password, 10);
-    db.insert(users)
+    await db.insert(users)
       .values({ email, passwordHash, name, role })
       .run();
 

@@ -10,7 +10,7 @@ export default async function DashboardPage() {
   if (!session || session.role !== "CHEF") redirect("/login");
 
   // Get or check chef profile
-  const chefProfile = db
+  const chefProfile = await db
     .select()
     .from(chefProfiles)
     .where(eq(chefProfiles.userId, session.id))
@@ -26,29 +26,33 @@ export default async function DashboardPage() {
   }
 
   // Get all menus for this chef
-  const chefMenus = db
+  const chefMenus = await db
     .select()
     .from(menus)
     .where(eq(menus.chefProfileId, chefProfile.id))
     .all();
 
   // Get items for each menu with allergens
-  const menusWithItems = chefMenus.map((menu) => {
-    const items = db.select().from(menuItems).where(eq(menuItems.menuId, menu.id)).all();
-    const itemsWithAllergens = items.map((item) => {
-      const itemAllergenList = db
-        .select({ id: allergens.id, name: allergens.name })
-        .from(itemAllergens)
-        .innerJoin(allergens, eq(allergens.id, itemAllergens.allergenId))
-        .where(eq(itemAllergens.itemId, item.id))
-        .all();
-      return { ...item, allergens: itemAllergenList };
-    });
-    return { ...menu, items: itemsWithAllergens };
-  });
+  const menusWithItems = await Promise.all(
+    chefMenus.map(async (menu) => {
+      const items = await db.select().from(menuItems).where(eq(menuItems.menuId, menu.id)).all();
+      const itemsWithAllergens = await Promise.all(
+        items.map(async (item) => {
+          const itemAllergenList = await db
+            .select({ id: allergens.id, name: allergens.name })
+            .from(itemAllergens)
+            .innerJoin(allergens, eq(allergens.id, itemAllergens.allergenId))
+            .where(eq(itemAllergens.itemId, item.id))
+            .all();
+          return { ...item, allergens: itemAllergenList };
+        })
+      );
+      return { ...menu, items: itemsWithAllergens };
+    })
+  );
 
   // Get pending orders for prep list
-  const pendingOrders = db
+  const pendingOrders = await db
     .select({
       order: orders,
       buyerName: users.name,
@@ -58,26 +62,28 @@ export default async function DashboardPage() {
     .where(and(eq(orders.chefId, chefProfile.id), eq(orders.status, "PENDING")))
     .all();
 
-  const ordersWithItems = pendingOrders.map((row) => {
-    const items = db
-      .select({
-        orderItem: orderItems,
-        menuItemTitle: menuItems.title,
-      })
-      .from(orderItems)
-      .innerJoin(menuItems, eq(menuItems.id, orderItems.menuItemId))
-      .where(eq(orderItems.orderId, row.order.id))
-      .all();
+  const ordersWithItems = await Promise.all(
+    pendingOrders.map(async (row) => {
+      const items = await db
+        .select({
+          orderItem: orderItems,
+          menuItemTitle: menuItems.title,
+        })
+        .from(orderItems)
+        .innerJoin(menuItems, eq(menuItems.id, orderItems.menuItemId))
+        .where(eq(orderItems.orderId, row.order.id))
+        .all();
 
-    return {
-      ...row.order,
-      buyerName: row.buyerName,
-      items: items.map((i) => ({
-        ...i.orderItem,
-        title: i.menuItemTitle,
-      })),
-    };
-  });
+      return {
+        ...row.order,
+        buyerName: row.buyerName,
+        items: items.map((i) => ({
+          ...i.orderItem,
+          title: i.menuItemTitle,
+        })),
+      };
+    })
+  );
 
   // Aggregate prep list
   const prepMap = new Map<string, number>();
@@ -90,7 +96,7 @@ export default async function DashboardPage() {
   const prepList = Array.from(prepMap.entries()).map(([title, quantity]) => ({ title, quantity }));
 
   // Get all allergens for the form
-  const allAllergens = db.select().from(allergens).all();
+  const allAllergens = await db.select().from(allergens).all();
 
   return (
     <DashboardClient
