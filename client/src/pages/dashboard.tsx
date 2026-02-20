@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { format, eachDayOfInterval, parseISO } from "date-fns";
+import { format, eachDayOfInterval, parseISO, isSameDay, isSameMonth, startOfMonth, endOfMonth, addMonths, subMonths, startOfWeek, endOfWeek } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -124,7 +124,9 @@ export default function Dashboard() {
   const [addDaySlotCutoff, setAddDaySlotCutoff] = useState("");
   const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set());
   const [itemSearchQuery, setItemSearchQuery] = useState("");
-  
+  const [calendarMonth, setCalendarMonth] = useState<Date>(new Date());
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null);
+
   // Serving size selection dialog state
   const [servingSizeDialogOpen, setServingSizeDialogOpen] = useState(false);
   const [pendingItemToAdd, setPendingItemToAdd] = useState<{ item: MenuItemWithDetails; daySlotId: number; dateKey: string } | null>(null);
@@ -881,15 +883,313 @@ export default function Dashboard() {
               <p className="text-sm text-muted-foreground">Click on any day to add your food offerings</p>
             </div>
 
-            {/* Calendar-based day selection */}
-            <div className="space-y-3">
+            {/* Desktop calendar view */}
+            <div className="hidden md:block space-y-4">
+              {(() => {
+                // Build a map of dateKey -> slot for the current month view
+                const monthStart = startOfMonth(calendarMonth);
+                const monthEnd = endOfMonth(calendarMonth);
+                const calendarStart = startOfWeek(monthStart, { weekStartsOn: 1 });
+                const calendarEnd = endOfWeek(monthEnd, { weekStartsOn: 1 });
+                const allCalendarDays = eachDayOfInterval({ start: calendarStart, end: calendarEnd });
+                const today = new Date();
+
+                const getSlotForDate = (dateKey: string) =>
+                  selectedChef?.daySlots?.find(
+                    (slot: any) => format(new Date(slot.date), "yyyy-MM-dd") === dateKey
+                  );
+
+                // Days that have items scheduled
+                const daysWithItems = new Set<string>();
+                selectedChef?.daySlots?.forEach((slot: any) => {
+                  if (slot.items && slot.items.length > 0) {
+                    daysWithItems.add(format(new Date(slot.date), "yyyy-MM-dd"));
+                  }
+                });
+
+                const selectedDateKey = selectedCalendarDate;
+                const selectedSlot = selectedDateKey ? getSlotForDate(selectedDateKey) : null;
+
+                return (
+                  <>
+                    {/* Month navigation */}
+                    <div className="flex items-center justify-between">
+                      <Button variant="outline" size="sm" onClick={() => setCalendarMonth(prev => subMonths(prev, 1))}>
+                        <ChevronUp className="h-4 w-4 rotate-[-90deg]" />
+                        <span className="ml-1">{format(subMonths(calendarMonth, 1), "MMM")}</span>
+                      </Button>
+                      <h3 className="text-lg font-semibold">{format(calendarMonth, "MMMM yyyy")}</h3>
+                      <Button variant="outline" size="sm" onClick={() => setCalendarMonth(prev => addMonths(prev, 1))}>
+                        <span className="mr-1">{format(addMonths(calendarMonth, 1), "MMM")}</span>
+                        <ChevronUp className="h-4 w-4 rotate-90" />
+                      </Button>
+                    </div>
+
+                    {/* Calendar grid */}
+                    <Card>
+                      <CardContent className="p-0">
+                        {/* Day-of-week header */}
+                        <div className="grid grid-cols-7 border-b">
+                          {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
+                            <div key={d} className="py-2 text-center text-sm font-medium text-muted-foreground">
+                              {d}
+                            </div>
+                          ))}
+                        </div>
+                        {/* Weeks */}
+                        {(() => {
+                          const weeks: Date[][] = [];
+                          for (let i = 0; i < allCalendarDays.length; i += 7) {
+                            weeks.push(allCalendarDays.slice(i, i + 7));
+                          }
+                          return weeks.map((week, wi) => (
+                            <div key={wi} className="grid grid-cols-7 border-b last:border-b-0">
+                              {week.map((day) => {
+                                const dateKey = format(day, "yyyy-MM-dd");
+                                const isCurrentMonth = isSameMonth(day, calendarMonth);
+                                const isToday = isSameDay(day, today);
+                                const isSelected = selectedDateKey === dateKey;
+                                const slot = getSlotForDate(dateKey);
+                                const itemCount = slot?.items?.length || 0;
+
+                                return (
+                                  <div
+                                    key={dateKey}
+                                    className={`relative min-h-[72px] p-1.5 cursor-pointer border-r last:border-r-0 transition-colors
+                                      ${!isCurrentMonth ? "bg-muted/30 text-muted-foreground" : ""}
+                                      ${isSelected ? "bg-primary/10 ring-2 ring-primary ring-inset" : "hover:bg-accent/50"}
+                                      ${isToday && !isSelected ? "bg-accent" : ""}
+                                    `}
+                                    onClick={() => {
+                                      setSelectedCalendarDate(dateKey);
+                                      setItemSearchQuery("");
+                                    }}
+                                  >
+                                    <span className={`text-sm ${isToday ? "font-bold text-primary" : ""}`}>
+                                      {format(day, "d")}
+                                    </span>
+                                    {itemCount > 0 && (
+                                      <div className="mt-1">
+                                        <span className="inline-flex items-center gap-1 text-xs font-medium text-primary">
+                                          <span className="w-1.5 h-1.5 rounded-full bg-primary" />
+                                          {itemCount}
+                                        </span>
+                                      </div>
+                                    )}
+                                    {slot && itemCount === 0 && (
+                                      <div className="mt-1">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40 inline-block" />
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ));
+                        })()}
+                      </CardContent>
+                    </Card>
+
+                    {/* Detail panel for selected date */}
+                    {selectedDateKey && (
+                      <Card>
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-base">
+                            {format(new Date(selectedDateKey + "T00:00:00"), "EEEE, MMMM d, yyyy")}
+                            {isSameDay(new Date(selectedDateKey + "T00:00:00"), today) && (
+                              <Badge variant="outline" className="ml-2">Today</Badge>
+                            )}
+                          </CardTitle>
+                          {selectedSlot ? (
+                            <CardDescription>
+                              {selectedSlot.items?.length || 0} item{(selectedSlot.items?.length || 0) !== 1 ? "s" : ""} • Orders by {format(new Date((selectedSlot as any).orderCutoffDate), "MMM d")}
+                            </CardDescription>
+                          ) : (
+                            <CardDescription>No offerings scheduled</CardDescription>
+                          )}
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          {/* Order cutoff editor */}
+                          {selectedSlot && (
+                            <div className="flex items-center gap-3">
+                              <label className="text-sm text-muted-foreground whitespace-nowrap">Order cutoff:</label>
+                              <Input
+                                type="date"
+                                value={format(new Date((selectedSlot as any).orderCutoffDate), "yyyy-MM-dd")}
+                                className="w-auto"
+                                onChange={async (e) => {
+                                  if (e.target.value) {
+                                    await updateDaySlotMutation.mutateAsync({
+                                      id: (selectedSlot as any).id,
+                                      orderCutoffDate: e.target.value,
+                                    });
+                                  }
+                                }}
+                              />
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-destructive ml-auto"
+                                onClick={async () => {
+                                  await deleteDaySlotMutation.mutateAsync((selectedSlot as any).id);
+                                }}
+                                disabled={deleteDaySlotMutation.isPending}
+                              >
+                                <Trash2 className="h-4 w-4 mr-1" />
+                                Remove Day
+                              </Button>
+                            </div>
+                          )}
+
+                          {/* Assigned items display */}
+                          {selectedSlot && (selectedSlot as any).items && (selectedSlot as any).items.length > 0 && (
+                            <div className="space-y-2">
+                              <p className="text-sm font-medium">Scheduled items:</p>
+                              <div className="space-y-2">
+                                {(selectedSlot as any).items.map((assignedItem: any) => (
+                                  <div key={assignedItem.id} className="p-3 rounded-lg border bg-primary/5 border-primary/20">
+                                    <div className="flex items-start gap-3">
+                                      {assignedItem.coverPhoto && (
+                                        <img src={assignedItem.coverPhoto} alt={assignedItem.title} className="w-12 h-12 rounded object-cover flex-shrink-0" />
+                                      )}
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center justify-between gap-2">
+                                          <p className="font-medium truncate">{assignedItem.title}</p>
+                                          <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-6 w-6 text-destructive flex-shrink-0"
+                                            onClick={() => handleRemoveItemFromDay((selectedSlot as any).id, assignedItem.id)}
+                                            disabled={removeItemFromDaySlotMutation.isPending}
+                                          >
+                                            <X className="h-4 w-4" />
+                                          </Button>
+                                        </div>
+                                        <div className="mt-2 space-y-1">
+                                          {assignedItem.assignedServingOptions && assignedItem.assignedServingOptions.length > 0 ? (
+                                            assignedItem.assignedServingOptions.map((aso: any) => (
+                                              <div key={aso.id} className="flex items-center justify-between text-sm pl-2 border-l-2 border-muted">
+                                                <div className="flex items-center gap-2">
+                                                  <span>{aso.servingOption.label}</span>
+                                                  <span className="text-muted-foreground">${aso.servingOption.price.toFixed(2)}</span>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                  <Badge variant={aso.stockLimited === 1 ? "secondary" : "outline"} className="text-xs">
+                                                    {aso.stockLimited === 1 ? `${aso.stockQuantity || 0} left` : "Unlimited"}
+                                                  </Badge>
+                                                  <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-5 w-5 text-destructive"
+                                                    onClick={() => removeAssignmentServingOptionMutation.mutate(aso.id)}
+                                                    disabled={removeAssignmentServingOptionMutation.isPending}
+                                                  >
+                                                    <X className="h-3 w-3" />
+                                                  </Button>
+                                                </div>
+                                              </div>
+                                            ))
+                                          ) : (
+                                            <p className="text-xs text-muted-foreground">No serving sizes configured</p>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Search and add items */}
+                          <div className="space-y-3">
+                            <p className="text-sm font-medium">Add items to this day:</p>
+                            <div className="relative">
+                              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                              <Input
+                                placeholder="Search for items to add..."
+                                value={itemSearchQuery}
+                                onChange={(e) => setItemSearchQuery(e.target.value)}
+                                className="pl-8"
+                              />
+                            </div>
+                            {itemSearchQuery && (
+                              <div className="grid grid-cols-1 gap-2 max-h-60 overflow-y-auto border rounded-lg p-2">
+                                {(() => {
+                                  const query = itemSearchQuery.toLowerCase();
+                                  const assignedIds = (selectedSlot as any)?.items?.map((i: any) => i.id) || [];
+                                  const filteredItems = (chefMenuItems || []).filter(item =>
+                                    !assignedIds.includes(item.id) && (
+                                      item.title.toLowerCase().includes(query) ||
+                                      item.description?.toLowerCase().includes(query) ||
+                                      item.ingredients?.some(i => i.name.toLowerCase().includes(query))
+                                    )
+                                  );
+
+                                  if (filteredItems.length === 0) {
+                                    return (
+                                      <p className="text-sm text-muted-foreground py-2 px-1">
+                                        No items found matching "{itemSearchQuery}"
+                                      </p>
+                                    );
+                                  }
+
+                                  return filteredItems.map((item) => (
+                                    <div key={item.id} className="flex items-center gap-3 p-2 rounded-lg hover-elevate cursor-pointer" onClick={() => handleAddItemToDay(item, (selectedSlot as any)?.id || null, selectedDateKey)}>
+                                      {item.coverPhoto && (
+                                        <img src={item.coverPhoto} alt={item.title} className="w-10 h-10 rounded object-cover" />
+                                      )}
+                                      <div className="min-w-0 flex-1">
+                                        <p className="font-medium truncate">{item.title}</p>
+                                        <p className="text-sm text-muted-foreground">
+                                          {(() => {
+                                            const opts = item.servingOptions || [];
+                                            if (opts.length === 0) return "No price set";
+                                            if (opts.length === 1) return `$${opts[0].price.toFixed(2)}`;
+                                            const prices = opts.map(o => o.price).sort((a, b) => a - b);
+                                            return `$${prices[0].toFixed(2)} - $${prices[prices.length - 1].toFixed(2)}`;
+                                          })()}
+                                        </p>
+                                      </div>
+                                      <Button size="icon" variant="ghost" className="flex-shrink-0">
+                                        <Plus className="h-4 w-4" />
+                                      </Button>
+                                    </div>
+                                  ));
+                                })()}
+                              </div>
+                            )}
+                            {!itemSearchQuery && (!selectedSlot || !(selectedSlot as any).items || (selectedSlot as any).items.length === 0) && (
+                              <p className="text-sm text-muted-foreground">Start typing to search for items to add to this day.</p>
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {!selectedDateKey && (
+                      <Card>
+                        <CardContent className="py-12 text-center">
+                          <CalendarDays className="h-12 w-12 mx-auto text-muted-foreground/30 mb-4" />
+                          <h3 className="font-medium mb-2">Select a Day</h3>
+                          <p className="text-muted-foreground text-sm">Click on a date in the calendar above to view or edit your schedule for that day.</p>
+                        </CardContent>
+                      </Card>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+
+            {/* Mobile list view (unchanged) */}
+            <div className="block md:hidden space-y-3">
               {(() => {
                 const today = new Date();
                 const upcomingDays = eachDayOfInterval({
                   start: today,
                   end: new Date(today.getTime() + 13 * 24 * 60 * 60 * 1000) // 14 days
                 });
-                
+
                 return upcomingDays.map((day) => {
                   const dateKey = format(day, "yyyy-MM-dd");
                   const existingSlot = selectedChef?.daySlots?.find(
@@ -898,10 +1198,10 @@ export default function Dashboard() {
                   const isExpanded = expandedDays.has(dateKey);
                   const itemCount = existingSlot?.items?.length || 0;
                   const isToday = format(day, "yyyy-MM-dd") === format(today, "yyyy-MM-dd");
-                  
+
                   return (
                     <Card key={dateKey} className={isToday ? "ring-2 ring-primary/20" : ""}>
-                      <div 
+                      <div
                         className="flex items-center justify-between p-4 cursor-pointer"
                         onClick={() => setExpandedDays(prev => {
                           const next = new Set(prev);
@@ -937,7 +1237,7 @@ export default function Dashboard() {
                           {isExpanded ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
                         </div>
                       </div>
-                      
+
                       {/* Expanded item assignment section */}
                       {isExpanded && (
                         <CardContent className="pt-0 border-t">
@@ -976,7 +1276,7 @@ export default function Dashboard() {
                                 </Button>
                               </div>
                             )}
-                            
+
                             {/* Assigned items display */}
                             {existingSlot && existingSlot.items && existingSlot.items.length > 0 && (
                               <div className="space-y-2">
@@ -1039,7 +1339,7 @@ export default function Dashboard() {
                                 </div>
                               </div>
                             )}
-                            
+
                             {/* Search and add items section */}
                             <div className="space-y-3">
                               <p className="text-sm font-medium">Add items to this day:</p>
@@ -1065,7 +1365,7 @@ export default function Dashboard() {
                                         item.ingredients?.some(i => i.name.toLowerCase().includes(query))
                                       )
                                     );
-                                    
+
                                     if (filteredItems.length === 0) {
                                       return (
                                         <p className="text-sm text-muted-foreground py-2 px-1">
@@ -1073,7 +1373,7 @@ export default function Dashboard() {
                                         </p>
                                       );
                                     }
-                                    
+
                                     return filteredItems.map((item) => (
                                       <div key={item.id} className="flex items-center gap-3 p-2 rounded-lg hover-elevate cursor-pointer" onClick={() => handleAddItemToDay(item, existingSlot?.id || null, dateKey)}>
                                         {item.coverPhoto && (
