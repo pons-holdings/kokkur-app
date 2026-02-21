@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Link } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -11,7 +12,7 @@ interface ChefCardProps {
   chef: ChefProfileWithDaySlots;
 }
 
-export function ChefCard({ chef }: ChefCardProps) {
+export const ChefCard = memo(function ChefCard({ chef }: ChefCardProps) {
   const { isFavorite, toggleFavorite } = useFavoritesStore();
   const favorite = isFavorite(chef.id);
 
@@ -153,4 +154,4 @@ export function ChefCard({ chef }: ChefCardProps) {
       </Card>
     </Link>
   );
-}
+});

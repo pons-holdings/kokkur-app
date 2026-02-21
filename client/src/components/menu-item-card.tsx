@@ -1,10 +1,11 @@
+import { memo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { 
-  Plus, 
-  Minus, 
-  AlertTriangle, 
+import {
+  Plus,
+  Minus,
+  AlertTriangle,
   UtensilsCrossed
 } from "lucide-react";
 import { useCartStore } from "@/lib/cart-store";
@@ -42,7 +43,7 @@ function getPriceDisplay(servingOptions: ServingOption[] | undefined) {
   };
 }
 
-export function MenuItemCard({ item, chef, onAddToCart }: MenuItemCardProps) {
+export const MenuItemCard = memo(function MenuItemCard({ item, chef, onAddToCart }: MenuItemCardProps) {
   const { items, addItem, updateQuantity } = useCartStore();
   
   const cartItem = items.find((i) => i.menuItem.id === item.id);
@@ -167,4 +168,4 @@ export function MenuItemCard({ item, chef, onAddToCart }: MenuItemCardProps) {
       </CardContent>
     </Card>
   );
-}
+});

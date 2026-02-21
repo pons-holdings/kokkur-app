@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -13,22 +14,22 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 
-interface AllergenFilterProps {
+interface FilterContentProps {
   allergens: Allergen[];
   excludedAllergens: number[];
   onToggleAllergen: (allergenId: number) => void;
   onClearFilters: () => void;
 }
 
-export function AllergenFilter({
+const FilterContent = memo(function FilterContent({
   allergens,
   excludedAllergens,
   onToggleAllergen,
   onClearFilters,
-}: AllergenFilterProps) {
+}: FilterContentProps) {
   const hasFilters = excludedAllergens.length > 0;
 
-  const FilterContent = () => (
+  return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -87,11 +88,32 @@ export function AllergenFilter({
       )}
     </div>
   );
+});
+
+interface AllergenFilterProps {
+  allergens: Allergen[];
+  excludedAllergens: number[];
+  onToggleAllergen: (allergenId: number) => void;
+  onClearFilters: () => void;
+}
+
+export function AllergenFilter({
+  allergens,
+  excludedAllergens,
+  onToggleAllergen,
+  onClearFilters,
+}: AllergenFilterProps) {
+  const hasFilters = excludedAllergens.length > 0;
 
   return (
     <>
       <div className="hidden lg:block">
-        <FilterContent />
+        <FilterContent
+          allergens={allergens}
+          excludedAllergens={excludedAllergens}
+          onToggleAllergen={onToggleAllergen}
+          onClearFilters={onClearFilters}
+        />
       </div>
 
       <div className="lg:hidden">
@@ -107,7 +129,7 @@ export function AllergenFilter({
               )}
             </Button>
           </SheetTrigger>
-          <SheetContent side="bottom" className="h-auto max-h-[70vh]">
+          <SheetContent side="bottom" className="h-auto max-h-[70vh] overflow-y-auto">
             <SheetHeader>
               <SheetTitle>Dietary Filters</SheetTitle>
               <SheetDescription>
@@ -115,7 +137,12 @@ export function AllergenFilter({
               </SheetDescription>
             </SheetHeader>
             <div className="py-4">
-              <FilterContent />
+              <FilterContent
+                allergens={allergens}
+                excludedAllergens={excludedAllergens}
+                onToggleAllergen={onToggleAllergen}
+                onClearFilters={onClearFilters}
+              />
             </div>
           </SheetContent>
         </Sheet>

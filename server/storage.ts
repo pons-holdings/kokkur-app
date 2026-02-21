@@ -20,7 +20,7 @@ import {
   type AssignedServingOptionWithDetails
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, ilike, sql } from "drizzle-orm";
+import { eq, and, ilike, sql, inArray } from "drizzle-orm";
 
 export interface IStorage {
   // Chefs
@@ -105,24 +105,202 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  // Batch helper: fetch all details for a set of menu item IDs in 4 queries instead of 4N
+  private async batchFetchMenuItemDetails(itemIds: number[]): Promise<{
+    ingredientsByItemId: Map<number, typeof ingredients.$inferSelect[]>;
+    allergensByItemId: Map<number, typeof allergens.$inferSelect[]>;
+    servingOptionsByItemId: Map<number, typeof servingOptions.$inferSelect[]>;
+    photosByItemId: Map<number, typeof itemPhotos.$inferSelect[]>;
+  }> {
+    if (itemIds.length === 0) {
+      return {
+        ingredientsByItemId: new Map(),
+        allergensByItemId: new Map(),
+        servingOptionsByItemId: new Map(),
+        photosByItemId: new Map(),
+      };
+    }
+
+    const [allIngredients, allAllergens, allServingOptions, allPhotos] = await Promise.all([
+      db.select({ menuItemId: itemIngredients.menuItemId, ingredient: ingredients })
+        .from(itemIngredients)
+        .innerJoin(ingredients, eq(itemIngredients.ingredientId, ingredients.id))
+        .where(inArray(itemIngredients.menuItemId, itemIds)),
+      db.select({ menuItemId: itemAllergens.menuItemId, allergen: allergens })
+        .from(itemAllergens)
+        .innerJoin(allergens, eq(itemAllergens.allergenId, allergens.id))
+        .where(inArray(itemAllergens.menuItemId, itemIds)),
+      db.select().from(servingOptions).where(inArray(servingOptions.menuItemId, itemIds)),
+      db.select().from(itemPhotos).where(inArray(itemPhotos.menuItemId, itemIds)),
+    ]);
+
+    const ingredientsByItemId = new Map<number, typeof ingredients.$inferSelect[]>();
+    const allergensByItemId = new Map<number, typeof allergens.$inferSelect[]>();
+    const servingOptionsByItemId = new Map<number, typeof servingOptions.$inferSelect[]>();
+    const photosByItemId = new Map<number, typeof itemPhotos.$inferSelect[]>();
+
+    for (const r of allIngredients) {
+      const list = ingredientsByItemId.get(r.menuItemId) || [];
+      list.push(r.ingredient);
+      ingredientsByItemId.set(r.menuItemId, list);
+    }
+    for (const r of allAllergens) {
+      const list = allergensByItemId.get(r.menuItemId) || [];
+      list.push(r.allergen);
+      allergensByItemId.set(r.menuItemId, list);
+    }
+    for (const opt of allServingOptions) {
+      const list = servingOptionsByItemId.get(opt.menuItemId) || [];
+      list.push(opt);
+      servingOptionsByItemId.set(opt.menuItemId, list);
+    }
+    for (const photo of allPhotos) {
+      const list = photosByItemId.get(photo.menuItemId) || [];
+      list.push(photo);
+      photosByItemId.set(photo.menuItemId, list);
+    }
+
+    return { ingredientsByItemId, allergensByItemId, servingOptionsByItemId, photosByItemId };
+  }
+
+  private buildMenuItemWithDetails(
+    item: typeof menuItems.$inferSelect,
+    details: Awaited<ReturnType<DatabaseStorage["batchFetchMenuItemDetails"]>>
+  ): MenuItemWithDetails {
+    const photos = details.photosByItemId.get(item.id) || [];
+    const coverPhotoObj = photos.find(p => p.isCover === 1);
+    return {
+      ...item,
+      ingredients: details.ingredientsByItemId.get(item.id) || [],
+      allergens: details.allergensByItemId.get(item.id) || [],
+      servingOptions: details.servingOptionsByItemId.get(item.id) || [],
+      photos,
+      coverPhoto: coverPhotoObj?.imageUrl,
+    };
+  }
+
   async getChefs(): Promise<ChefProfileWithDaySlots[]> {
     const chefsData = await db.select().from(chefProfiles);
-    
-    const chefsWithDaySlots = await Promise.all(
-      chefsData.map(async (chef) => {
-        const daySlotsData = await this.getDaySlotsByChefId(chef.id);
-        return { ...chef, daySlots: daySlotsData };
-      })
-    );
-    
-    return chefsWithDaySlots;
+    if (chefsData.length === 0) return [];
+
+    const chefIds = chefsData.map(c => c.id);
+
+    // Batch fetch all day slots for all chefs
+    const allSlots = await db.select().from(menuDaySlots).where(inArray(menuDaySlots.chefId, chefIds));
+
+    if (allSlots.length === 0) {
+      return chefsData.map(chef => ({ ...chef, daySlots: [] }));
+    }
+
+    const slotIds = allSlots.map(s => s.id);
+
+    // Batch fetch all assignments for all slots
+    const allAssignments = await db
+      .select({ assignment: menuItemAssignments, menuItem: menuItems })
+      .from(menuItemAssignments)
+      .innerJoin(menuItems, eq(menuItemAssignments.menuItemId, menuItems.id))
+      .where(inArray(menuItemAssignments.daySlotId, slotIds));
+
+    // Get unique item IDs and batch fetch their details
+    const uniqueItemIds = Array.from(new Set(allAssignments.map(a => a.menuItem.id)));
+    const details = await this.batchFetchMenuItemDetails(uniqueItemIds);
+
+    // Batch fetch all assignment serving options
+    const assignmentIds = allAssignments.map(a => a.assignment.id);
+    const allAssignmentServingOptions = assignmentIds.length > 0
+      ? await db
+          .select({ assignmentServingOption: assignmentServingOptions, servingOption: servingOptions })
+          .from(assignmentServingOptions)
+          .innerJoin(servingOptions, eq(assignmentServingOptions.servingOptionId, servingOptions.id))
+          .where(inArray(assignmentServingOptions.assignmentId, assignmentIds))
+      : [];
+
+    // Group assignment serving options by assignment ID
+    const asoByAssignmentId = new Map<number, AssignedServingOptionWithDetails[]>();
+    for (const r of allAssignmentServingOptions) {
+      const list = asoByAssignmentId.get(r.assignmentServingOption.assignmentId) || [];
+      list.push({ ...r.assignmentServingOption, servingOption: r.servingOption });
+      asoByAssignmentId.set(r.assignmentServingOption.assignmentId, list);
+    }
+
+    // Group assignments by slot ID
+    const assignmentsBySlotId = new Map<number, MenuItemWithAssignment[]>();
+    for (const a of allAssignments) {
+      const list = assignmentsBySlotId.get(a.assignment.daySlotId) || [];
+      const itemWithDetails = this.buildMenuItemWithDetails(a.menuItem, details);
+      list.push({
+        ...itemWithDetails,
+        assignmentId: a.assignment.id,
+        assignedServingOptions: asoByAssignmentId.get(a.assignment.id) || [],
+      });
+      assignmentsBySlotId.set(a.assignment.daySlotId, list);
+    }
+
+    // Group slots by chef ID
+    const slotsByChefId = new Map<number, DaySlotWithItems[]>();
+    for (const slot of allSlots) {
+      const list = slotsByChefId.get(slot.chefId) || [];
+      list.push({ ...slot, items: assignmentsBySlotId.get(slot.id) || [] });
+      slotsByChefId.set(slot.chefId, list);
+    }
+
+    return chefsData.map(chef => ({
+      ...chef,
+      daySlots: slotsByChefId.get(chef.id) || [],
+    }));
   }
 
   async getChefBySlug(slug: string): Promise<ChefProfileWithDaySlots | undefined> {
     const [chef] = await db.select().from(chefProfiles).where(eq(chefProfiles.slug, slug));
     if (!chef) return undefined;
-    
-    const daySlotsData = await this.getDaySlotsByChefId(chef.id);
+
+    // Use the optimized batch approach for a single chef
+    const slots = await db.select().from(menuDaySlots).where(eq(menuDaySlots.chefId, chef.id));
+    if (slots.length === 0) return { ...chef, daySlots: [] };
+
+    const slotIds = slots.map(s => s.id);
+    const assignments = await db
+      .select({ assignment: menuItemAssignments, menuItem: menuItems })
+      .from(menuItemAssignments)
+      .innerJoin(menuItems, eq(menuItemAssignments.menuItemId, menuItems.id))
+      .where(inArray(menuItemAssignments.daySlotId, slotIds));
+
+    const uniqueItemIds = Array.from(new Set(assignments.map(a => a.menuItem.id)));
+    const details = await this.batchFetchMenuItemDetails(uniqueItemIds);
+
+    const assignmentIds = assignments.map(a => a.assignment.id);
+    const allAso = assignmentIds.length > 0
+      ? await db
+          .select({ assignmentServingOption: assignmentServingOptions, servingOption: servingOptions })
+          .from(assignmentServingOptions)
+          .innerJoin(servingOptions, eq(assignmentServingOptions.servingOptionId, servingOptions.id))
+          .where(inArray(assignmentServingOptions.assignmentId, assignmentIds))
+      : [];
+
+    const asoByAssignmentId = new Map<number, AssignedServingOptionWithDetails[]>();
+    for (const r of allAso) {
+      const list = asoByAssignmentId.get(r.assignmentServingOption.assignmentId) || [];
+      list.push({ ...r.assignmentServingOption, servingOption: r.servingOption });
+      asoByAssignmentId.set(r.assignmentServingOption.assignmentId, list);
+    }
+
+    const assignmentsBySlotId = new Map<number, MenuItemWithAssignment[]>();
+    for (const a of assignments) {
+      const list = assignmentsBySlotId.get(a.assignment.daySlotId) || [];
+      const itemWithDetails = this.buildMenuItemWithDetails(a.menuItem, details);
+      list.push({
+        ...itemWithDetails,
+        assignmentId: a.assignment.id,
+        assignedServingOptions: asoByAssignmentId.get(a.assignment.id) || [],
+      });
+      assignmentsBySlotId.set(a.assignment.daySlotId, list);
+    }
+
+    const daySlotsData: DaySlotWithItems[] = slots.map(slot => ({
+      ...slot,
+      items: assignmentsBySlotId.get(slot.id) || [],
+    }));
+
     return { ...chef, daySlots: daySlotsData };
   }
 
@@ -166,21 +344,9 @@ export class DatabaseStorage implements IStorage {
   async getMenuItemById(id: number): Promise<MenuItemWithDetails | undefined> {
     const [item] = await db.select().from(menuItems).where(eq(menuItems.id, id));
     if (!item) return undefined;
-    
-    const ingredientsList = await this.getIngredientsByMenuItemId(id);
-    const allergensList = await this.getAllergensByMenuItemId(id);
-    const servingOptionsList = await this.getServingOptionsByMenuItemId(id);
-    const photosList = await this.getPhotosByMenuItemId(id);
-    const coverPhotoObj = photosList.find(p => p.isCover === 1);
-    
-    return { 
-      ...item, 
-      ingredients: ingredientsList, 
-      allergens: allergensList,
-      servingOptions: servingOptionsList,
-      photos: photosList,
-      coverPhoto: coverPhotoObj?.imageUrl
-    };
+
+    const details = await this.batchFetchMenuItemDetails([id]);
+    return this.buildMenuItemWithDetails(item, details);
   }
 
   async createMenuItem(item: InsertMenuItem): Promise<MenuItem> {
@@ -220,26 +386,12 @@ export class DatabaseStorage implements IStorage {
 
   async getMenuItemsByChefId(chefId: number): Promise<MenuItemWithDetails[]> {
     const items = await db.select().from(menuItems).where(eq(menuItems.chefId, chefId));
-    
-    const itemsWithDetails = await Promise.all(
-      items.map(async (item) => {
-        const ingredientsList = await this.getIngredientsByMenuItemId(item.id);
-        const allergensList = await this.getAllergensByMenuItemId(item.id);
-        const servingOptionsList = await this.getServingOptionsByMenuItemId(item.id);
-        const photosList = await this.getPhotosByMenuItemId(item.id);
-        const coverPhotoObj = photosList.find(p => p.isCover === 1);
-        return { 
-          ...item, 
-          ingredients: ingredientsList, 
-          allergens: allergensList,
-          servingOptions: servingOptionsList,
-          photos: photosList,
-          coverPhoto: coverPhotoObj?.imageUrl
-        };
-      })
-    );
-    
-    return itemsWithDetails;
+    if (items.length === 0) return [];
+
+    const itemIds = items.map(i => i.id);
+    const details = await this.batchFetchMenuItemDetails(itemIds);
+
+    return items.map(item => this.buildMenuItemWithDetails(item, details));
   }
 
   async updateMenuItem(id: number, item: Partial<InsertMenuItem>): Promise<MenuItem | undefined> {
@@ -255,15 +407,54 @@ export class DatabaseStorage implements IStorage {
   // Day Slot methods (belong directly to chef)
   async getDaySlotsByChefId(chefId: number): Promise<DaySlotWithItems[]> {
     const slots = await db.select().from(menuDaySlots).where(eq(menuDaySlots.chefId, chefId));
-    
-    const slotsWithItems = await Promise.all(
-      slots.map(async (slot) => {
-        const items = await this.getItemsForDaySlot(slot.id);
-        return { ...slot, items };
-      })
-    );
-    
-    return slotsWithItems;
+    if (slots.length === 0) return [];
+
+    const slotIds = slots.map(s => s.id);
+
+    // Batch fetch all assignments for all slots
+    const allAssignments = await db
+      .select({ assignment: menuItemAssignments, menuItem: menuItems })
+      .from(menuItemAssignments)
+      .innerJoin(menuItems, eq(menuItemAssignments.menuItemId, menuItems.id))
+      .where(inArray(menuItemAssignments.daySlotId, slotIds));
+
+    const uniqueItemIds = Array.from(new Set(allAssignments.map(a => a.menuItem.id)));
+    const details = await this.batchFetchMenuItemDetails(uniqueItemIds);
+
+    // Batch fetch assignment serving options
+    const assignmentIds = allAssignments.map(a => a.assignment.id);
+    const allAso = assignmentIds.length > 0
+      ? await db
+          .select({ assignmentServingOption: assignmentServingOptions, servingOption: servingOptions })
+          .from(assignmentServingOptions)
+          .innerJoin(servingOptions, eq(assignmentServingOptions.servingOptionId, servingOptions.id))
+          .where(inArray(assignmentServingOptions.assignmentId, assignmentIds))
+      : [];
+
+    const asoByAssignmentId = new Map<number, AssignedServingOptionWithDetails[]>();
+    for (const r of allAso) {
+      const list = asoByAssignmentId.get(r.assignmentServingOption.assignmentId) || [];
+      list.push({ ...r.assignmentServingOption, servingOption: r.servingOption });
+      asoByAssignmentId.set(r.assignmentServingOption.assignmentId, list);
+    }
+
+    // Group assignments by slot ID
+    const assignmentsBySlotId = new Map<number, MenuItemWithAssignment[]>();
+    for (const a of allAssignments) {
+      const list = assignmentsBySlotId.get(a.assignment.daySlotId) || [];
+      const itemWithDetails = this.buildMenuItemWithDetails(a.menuItem, details);
+      list.push({
+        ...itemWithDetails,
+        assignmentId: a.assignment.id,
+        assignedServingOptions: asoByAssignmentId.get(a.assignment.id) || [],
+      });
+      assignmentsBySlotId.set(a.assignment.daySlotId, list);
+    }
+
+    return slots.map(slot => ({
+      ...slot,
+      items: assignmentsBySlotId.get(slot.id) || [],
+    }));
   }
 
   async getDaySlotById(id: number): Promise<MenuDaySlot | undefined> {
@@ -361,29 +552,35 @@ export class DatabaseStorage implements IStorage {
       .from(menuItemAssignments)
       .innerJoin(menuItems, eq(menuItemAssignments.menuItemId, menuItems.id))
       .where(eq(menuItemAssignments.daySlotId, daySlotId));
-    
-    const itemsWithDetails = await Promise.all(
-      result.map(async (r) => {
-        const ingredientsList = await this.getIngredientsByMenuItemId(r.menuItem.id);
-        const allergensList = await this.getAllergensByMenuItemId(r.menuItem.id);
-        const servingOptionsList = await this.getServingOptionsByMenuItemId(r.menuItem.id);
-        const photosList = await this.getPhotosByMenuItemId(r.menuItem.id);
-        const coverPhotoObj = photosList.find(p => p.isCover === 1);
-        const assignedServingOptionsList = await this.getAssignmentServingOptions(r.assignment.id);
-        return { 
-          ...r.menuItem, 
-          ingredients: ingredientsList, 
-          allergens: allergensList,
-          servingOptions: servingOptionsList,
-          photos: photosList,
-          coverPhoto: coverPhotoObj?.imageUrl,
-          assignmentId: r.assignment.id,
-          assignedServingOptions: assignedServingOptionsList
-        };
-      })
-    );
-    
-    return itemsWithDetails;
+
+    if (result.length === 0) return [];
+
+    const itemIds = result.map(r => r.menuItem.id);
+    const details = await this.batchFetchMenuItemDetails(itemIds);
+
+    // Batch fetch assignment serving options
+    const assignmentIds = result.map(r => r.assignment.id);
+    const allAso = await db
+      .select({ assignmentServingOption: assignmentServingOptions, servingOption: servingOptions })
+      .from(assignmentServingOptions)
+      .innerJoin(servingOptions, eq(assignmentServingOptions.servingOptionId, servingOptions.id))
+      .where(inArray(assignmentServingOptions.assignmentId, assignmentIds));
+
+    const asoByAssignmentId = new Map<number, AssignedServingOptionWithDetails[]>();
+    for (const r of allAso) {
+      const list = asoByAssignmentId.get(r.assignmentServingOption.assignmentId) || [];
+      list.push({ ...r.assignmentServingOption, servingOption: r.servingOption });
+      asoByAssignmentId.set(r.assignmentServingOption.assignmentId, list);
+    }
+
+    return result.map(r => {
+      const itemWithDetails = this.buildMenuItemWithDetails(r.menuItem, details);
+      return {
+        ...itemWithDetails,
+        assignmentId: r.assignment.id,
+        assignedServingOptions: asoByAssignmentId.get(r.assignment.id) || [],
+      };
+    });
   }
 
   async getIngredients(): Promise<Ingredient[]> {
@@ -488,13 +685,25 @@ export class DatabaseStorage implements IStorage {
   // Ingredient-Allergen mappings
   async getIngredientsWithAllergens(): Promise<IngredientWithAllergens[]> {
     const allIngredients = await db.select().from(ingredients);
-    const ingredientsWithAllergens = await Promise.all(
-      allIngredients.map(async (ingredient) => {
-        const allergensList = await this.getAllergensByIngredientId(ingredient.id);
-        return { ...ingredient, allergens: allergensList };
-      })
-    );
-    return ingredientsWithAllergens;
+    if (allIngredients.length === 0) return [];
+
+    // Single join query instead of N+1
+    const allMappings = await db
+      .select({ ingredientId: ingredientAllergens.ingredientId, allergen: allergens })
+      .from(ingredientAllergens)
+      .innerJoin(allergens, eq(ingredientAllergens.allergenId, allergens.id));
+
+    const allergensByIngredientId = new Map<number, typeof allergens.$inferSelect[]>();
+    for (const m of allMappings) {
+      const list = allergensByIngredientId.get(m.ingredientId) || [];
+      list.push(m.allergen);
+      allergensByIngredientId.set(m.ingredientId, list);
+    }
+
+    return allIngredients.map(ingredient => ({
+      ...ingredient,
+      allergens: allergensByIngredientId.get(ingredient.id) || [],
+    }));
   }
 
   async getIngredientWithAllergens(id: number): Promise<IngredientWithAllergens | undefined> {
@@ -539,16 +748,28 @@ export class DatabaseStorage implements IStorage {
 
   async getOrdersByChefId(chefId: number): Promise<OrderWithItems[]> {
     const ordersData = await db.select().from(orders).where(eq(orders.chefId, chefId));
-    
-    const ordersWithItems = await Promise.all(
-      ordersData.map(async (order) => {
-        const items = await db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
-        const chef = await this.getChefById(order.chefId);
-        return { ...order, items, chef };
-      })
-    );
-    
-    return ordersWithItems;
+    if (ordersData.length === 0) return [];
+
+    // Batch fetch all order items in a single query
+    const orderIds = ordersData.map(o => o.id);
+    const allOrderItems = await db.select().from(orderItems).where(inArray(orderItems.orderId, orderIds));
+
+    // Group order items by order ID
+    const itemsByOrderId = new Map<number, typeof orderItems.$inferSelect[]>();
+    for (const item of allOrderItems) {
+      const list = itemsByOrderId.get(item.orderId) || [];
+      list.push(item);
+      itemsByOrderId.set(item.orderId, list);
+    }
+
+    // Fetch the chef once (all orders share the same chef)
+    const chef = await this.getChefById(chefId);
+
+    return ordersData.map(order => ({
+      ...order,
+      items: itemsByOrderId.get(order.id) || [],
+      chef,
+    }));
   }
 
   async updateOrderStatus(orderId: number, status: string): Promise<Order | undefined> {

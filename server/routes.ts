@@ -4,6 +4,13 @@ import { storage } from "./storage";
 import { z } from "zod";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 
+function parsePagination(query: { page?: string; limit?: string }) {
+  const page = Math.max(1, parseInt(query.page as string) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(query.limit as string) || 50));
+  const offset = (page - 1) * limit;
+  return { page, limit, offset };
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -49,7 +56,11 @@ export async function registerRoutes(
   app.get("/api/ingredients", async (req, res) => {
     try {
       const query = req.query.search as string;
-      const ingredients = query 
+      // Validate search query length
+      if (query && query.length > 100) {
+        return res.status(400).json({ error: "Search query too long (max 100 characters)" });
+      }
+      const ingredients = query
         ? await storage.searchIngredients(query)
         : await storage.getIngredients();
       res.json(ingredients);
@@ -87,11 +98,11 @@ export async function registerRoutes(
 
   // Menu CRUD
   const createMenuSchema = z.object({
-    chefId: z.number(),
-    title: z.string().min(2),
-    description: z.string().optional(),
-    startDate: z.string(),
-    endDate: z.string(),
+    chefId: z.number().int().positive(),
+    title: z.string().min(2).max(200),
+    description: z.string().max(2000).optional(),
+    startDate: z.string().refine((s) => !isNaN(Date.parse(s)), { message: "Invalid date format" }),
+    endDate: z.string().refine((s) => !isNaN(Date.parse(s)), { message: "Invalid date format" }),
     status: z.enum(["draft", "active", "archived"]).default("draft"),
   });
 
@@ -181,9 +192,9 @@ export async function registerRoutes(
 
   // Day Slot CRUD
   const createDaySlotSchema = z.object({
-    chefId: z.number(),
-    date: z.string(),
-    orderCutoffDate: z.string(),
+    chefId: z.number().int().positive(),
+    date: z.string().refine((s) => !isNaN(Date.parse(s)), { message: "Invalid date format" }),
+    orderCutoffDate: z.string().refine((s) => !isNaN(Date.parse(s)), { message: "Invalid date format" }),
   });
 
   // Get day slots by chef ID
@@ -623,22 +634,22 @@ export async function registerRoutes(
   });
 
   const createOrderSchema = z.object({
-    chefId: z.number(),
-    buyerName: z.string().min(2),
-    buyerEmail: z.string().email().optional().nullable(),
-    buyerPhone: z.string().optional().nullable(),
-    totalAmount: z.number().min(0),
+    chefId: z.number().int().positive(),
+    buyerName: z.string().min(2).max(200),
+    buyerEmail: z.string().email().max(254).optional().nullable(),
+    buyerPhone: z.string().max(20).optional().nullable(),
+    totalAmount: z.number().min(0.01),
     fulfillmentMethod: z.enum(["pickup", "delivery"]),
-    deliveryAddress: z.string().optional().nullable(),
-    deliveryLat: z.number().optional().nullable(),
-    deliveryLong: z.number().optional().nullable(),
-    notes: z.string().optional().nullable(),
+    deliveryAddress: z.string().max(500).optional().nullable(),
+    deliveryLat: z.number().min(-90).max(90).optional().nullable(),
+    deliveryLong: z.number().min(-180).max(180).optional().nullable(),
+    notes: z.string().max(1000).optional().nullable(),
     items: z.array(z.object({
-      menuItemId: z.number(),
-      quantity: z.number().min(1),
-      priceAtOrder: z.number(),
-      itemTitle: z.string(),
-    })),
+      menuItemId: z.number().int().positive(),
+      quantity: z.number().int().min(1).max(100),
+      priceAtOrder: z.number().min(0),
+      itemTitle: z.string().max(200),
+    })).min(1),
   });
 
   app.post("/api/orders", async (req, res) => {
@@ -688,9 +699,16 @@ export async function registerRoutes(
       if (isNaN(chefId)) {
         return res.status(400).json({ error: "Invalid chef ID" });
       }
-      
+
+      const statusFilter = req.query.status as string | undefined;
       const orders = await storage.getOrdersByChefId(chefId);
-      res.json(orders);
+
+      // Filter by status if provided
+      const filtered = statusFilter
+        ? orders.filter(o => o.status === statusFilter)
+        : orders;
+
+      res.json(filtered);
     } catch (error) {
       console.error("Error fetching orders:", error);
       res.status(500).json({ error: "Failed to fetch orders" });

@@ -1,7 +1,45 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npx vite build:*)"
+      "Bash(npx vite build:*)",
+      "Bash(find /home/runner/workspace -name \".env*\" -type f 2>/dev/null | head -20)",
+      "Bash(wc -l /home/runner/workspace/client/src/pages/*.tsx)",
+      "Bash(npm install helmet express-rate-limit 2>&1 | tail -5)",
+      "Bash(npx drizzle-kit generate 2>&1)",
+      "Bash(npx drizzle-kit push 2>&1)",
+      "Bash(npx tsc --noEmit 2>&1 | head -60)",
+      "Bash(git stash && npx tsc --noEmit 2>&1 | head -5)",
+      "Bash(node -e \"const pkg = require\\('./node_modules/drizzle-orm/package.json'\\); console.log\\('Exact version:', pkg.version\\)\")",
+      "Bash(node -e \"\nconst {createInsertSchema} = require\\('drizzle-zod'\\);\n// Just check if it exists and what it returns\nconsole.log\\('createInsertSchema type:', typeof createInsertSchema\\);\n\" 2>&1 | head -5)",
+      "Bash(git stash && npx tsc --noEmit 2>&1 | grep \"schema.ts\" ; git stash pop)",
+      "Bash(git stash && npx tsc --noEmit 2>&1 | grep \"error TS\" | wc -l ; npx tsc --noEmit 2>&1 | grep \"error TS\" > /tmp/original-errors.txt ; git stash pop)",
+      "Bash(npx tsc --noEmit 2>&1 | grep \"error TS\" | wc -l && npx tsc --noEmit 2>&1 | grep \"error TS\" > /tmp/current-errors.txt)",
+      "Bash(timeout 10 npx tsx --no-warnings server/index.ts 2>&1 || true)",
+      "Bash(lsof -i :5000 2>/dev/null || ss -tlnp | grep 5000)",
+      "Bash(fuser 5000/tcp 2>/dev/null; ps aux | grep -E \"tsx|node|vite\" | grep -v grep)",
+      "Bash(curl -s http://localhost:5000/api/chefs 2>&1 | head -c 500)",
+      "Bash(curl -s http://localhost:5000/ 2>&1 | head -c 1000)",
+      "Bash(grep -n \"MenuItemForm\" /home/runner/workspace/client/src/components/dashboard/*.tsx)",
+      "Bash(grep -n \"^export default\" /home/runner/workspace/client/src/components/dashboard/*.tsx)",
+      "Bash(npm run build:client 2>&1 | head -100)",
+      "Bash(npm run 2>&1 | grep -E \"^\\\\s*\\(dev|build|start\\)\" | head -10)",
+      "Bash(npx tsc --noEmit --skipLibCheck 2>&1 | head -150)",
+      "Bash(grep -n \"hovernElevate\" /home/runner/workspace/client/src/components/dashboard/*.tsx)",
+      "Bash(grep -n \"hover-elevate\\\\|hover_elevate\" /home/runner/workspace/client/src/components/dashboard/*.tsx)",
+      "Bash(grep -n \"servingOptions\\\\?\" /home/runner/workspace/client/src/components/dashboard/*.tsx | head -20)",
+      "Bash(curl -sI http://localhost:5000/ 2>&1 | head -30)",
+      "Bash(curl -s http://localhost:5000/dashboard 2>&1 | head -c 2000)",
+      "Bash(curl -s \"http://localhost:5000/src/main.tsx\" 2>&1 | head -c 500)",
+      "Bash(curl -s \"http://localhost:5000/src/App.tsx\" 2>&1 | head -c 1000)",
+      "Bash(curl -s \"http://localhost:5000/src/components/dashboard/ScheduleTab.tsx\" 2>&1 | head -c 200)",
+      "Bash(curl -s \"http://localhost:5000/src/components/dashboard/MenuItemForm.tsx\" 2>&1 | tail -c 500)",
+      "Bash(pkill -f \"tsx.*server/index.ts\" 2>/dev/null; echo \"Killed old server\")",
+      "Bash(curl -sI http://localhost:5000/ 2>&1 | head -20)",
+      "Bash(fuser -k 5000/tcp 2>/dev/null; echo \"Port 5000 freed\")",
+      "Bash(lsof -ti :5000 2>/dev/null)",
+      "Bash(fuser 5000/tcp 2>/dev/null)",
+      "Bash(pkill -9 -f \"tsx.*server\" 2>/dev/null; pkill -9 -f \"node.*server/index\" 2>/dev/null; echo \"done\")",
+      "Bash(xargs kill -9)"
     ]
   }
 }

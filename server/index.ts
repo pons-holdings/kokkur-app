@@ -2,6 +2,8 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 
 const app = express();
 const httpServer = createServer(app);
@@ -11,6 +13,44 @@ declare module "http" {
     rawBody: unknown;
   }
 }
+
+// Security headers (production only — helmet's X-Frame-Options and CSP
+// frame-ancestors block the preview iframe in development environments)
+if (process.env.NODE_ENV === "production") {
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com"],
+        imgSrc: ["'self'", "data:", "blob:", "https:", "http:"],
+        connectSrc: ["'self'", "https:", "wss:"],
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+  }));
+}
+
+// Rate limiting
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 200, // limit each IP to 200 requests per windowMs
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests, please try again later." },
+});
+app.use("/api/", apiLimiter);
+
+// Stricter rate limit for mutation endpoints
+const mutationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 50,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests, please try again later." },
+});
+app.use("/api/orders", mutationLimiter);
 
 app.use(
   express.json({
@@ -48,8 +88,10 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+      // Only log response body for errors (not success), and truncate to avoid PII leaks
+      if (capturedJsonResponse && res.statusCode >= 400) {
+        const sanitized = { error: capturedJsonResponse.error || capturedJsonResponse.message };
+        logLine += ` :: ${JSON.stringify(sanitized)}`;
       }
 
       log(logLine);

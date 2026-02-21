@@ -25,16 +25,25 @@ export function IngredientTypeahead({
   placeholder = "Search ingredients...",
 }: IngredientTypeaheadProps) {
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   const { data: allIngredients = [] } = useQuery<IngredientWithAllergens[]>({
     queryKey: ["/api/ingredients-with-allergens"],
   });
 
   const { data: searchResults = [], isLoading: searching } = useQuery<Ingredient[]>({
-    queryKey: [`/api/ingredients?search=${encodeURIComponent(search)}`],
-    enabled: search.length >= 1,
+    queryKey: [`/api/ingredients?search=${encodeURIComponent(debouncedSearch)}`],
+    enabled: debouncedSearch.length >= 1,
   });
 
   const createIngredientMutation = useMutation({

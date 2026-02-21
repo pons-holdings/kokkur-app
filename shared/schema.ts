@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, integer, real, timestamp, pgEnum, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, real, timestamp, pgEnum, primaryKey, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -23,6 +23,8 @@ export const chefProfiles = pgTable("chef_profiles", {
   serviceRadius: integer("service_radius").notNull().default(10),
   fulfillmentMethod: fulfillmentMethodEnum("fulfillment_method").notNull().default("both"),
   deliveryFee: real("delivery_fee").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 // Menus (represents a date range of offerings)
@@ -34,7 +36,9 @@ export const menus = pgTable("menus", {
   startDate: timestamp("start_date").notNull(),
   endDate: timestamp("end_date").notNull(),
   status: menuStatusEnum("status").notNull().default("draft"),
-});
+}, (table) => [
+  index("menus_chef_id_idx").on(table.chefId),
+]);
 
 // Day Slots (individual days when chef offers food - belongs directly to chef)
 export const menuDaySlots = pgTable("menu_day_slots", {
@@ -42,7 +46,9 @@ export const menuDaySlots = pgTable("menu_day_slots", {
   chefId: integer("chef_id").notNull().references(() => chefProfiles.id, { onDelete: "cascade" }),
   date: timestamp("date").notNull(), // The actual date for this slot
   orderCutoffDate: timestamp("order_cutoff_date").notNull(), // Cutoff for ordering this day's items
-});
+}, (table) => [
+  index("day_slots_chef_id_idx").on(table.chefId),
+]);
 
 // Menu Items (belong to chef, can be assigned to multiple menus)
 export const menuItems = pgTable("menu_items", {
@@ -50,7 +56,11 @@ export const menuItems = pgTable("menu_items", {
   chefId: integer("chef_id").notNull().references(() => chefProfiles.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   description: text("description"),
-});
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("menu_items_chef_id_idx").on(table.chefId),
+]);
 
 // Serving Options (multiple price tiers per menu item, e.g., 1 serving $9.99, 4 servings $29.99)
 export const servingOptions = pgTable("serving_options", {
@@ -60,7 +70,9 @@ export const servingOptions = pgTable("serving_options", {
   label: text("label").notNull(), // e.g., "1 serving", "Family Pack (4 servings)"
   price: real("price").notNull(),
   isDefault: integer("is_default").notNull().default(0), // Boolean as integer
-});
+}, (table) => [
+  index("serving_options_menu_item_id_idx").on(table.menuItemId),
+]);
 
 // Item Photos (multiple photos per menu item with cover selection)
 export const itemPhotos = pgTable("item_photos", {
@@ -69,14 +81,20 @@ export const itemPhotos = pgTable("item_photos", {
   imageUrl: text("image_url").notNull(),
   isCover: integer("is_cover").notNull().default(0), // Boolean as integer
   sortOrder: integer("sort_order").notNull().default(0),
-});
+}, (table) => [
+  index("item_photos_menu_item_id_idx").on(table.menuItemId),
+]);
 
 // Menu Item Assignments (many-to-many: items assigned to specific day slots)
 export const menuItemAssignments = pgTable("menu_item_assignments", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   daySlotId: integer("day_slot_id").notNull().references(() => menuDaySlots.id, { onDelete: "cascade" }),
   menuItemId: integer("menu_item_id").notNull().references(() => menuItems.id, { onDelete: "cascade" }),
-});
+}, (table) => [
+  index("assignments_day_slot_id_idx").on(table.daySlotId),
+  index("assignments_menu_item_id_idx").on(table.menuItemId),
+  index("assignments_day_slot_item_idx").on(table.daySlotId, table.menuItemId),
+]);
 
 // Assignment Serving Options (which serving sizes are offered for each assignment, with per-size stock)
 export const assignmentServingOptions = pgTable("assignment_serving_options", {
@@ -85,7 +103,9 @@ export const assignmentServingOptions = pgTable("assignment_serving_options", {
   servingOptionId: integer("serving_option_id").notNull().references(() => servingOptions.id, { onDelete: "cascade" }),
   stockQuantity: integer("stock_quantity"), // null means unlimited
   stockLimited: integer("stock_limited").notNull().default(0), // Boolean as integer
-});
+}, (table) => [
+  index("assignment_serving_options_assignment_id_idx").on(table.assignmentId),
+]);
 
 // Ingredients
 export const ingredients = pgTable("ingredients", {
@@ -105,25 +125,25 @@ export const allergens = pgTable("allergens", {
 export const ingredientAllergens = pgTable("ingredient_allergens", {
   ingredientId: integer("ingredient_id").notNull().references(() => ingredients.id, { onDelete: "cascade" }),
   allergenId: integer("allergen_id").notNull().references(() => allergens.id, { onDelete: "cascade" }),
-}, (table) => ({
-  pk: primaryKey({ columns: [table.ingredientId, table.allergenId] }),
-}));
+}, (table) => [
+  primaryKey({ columns: [table.ingredientId, table.allergenId] }),
+]);
 
 // Item Ingredients (many-to-many)
 export const itemIngredients = pgTable("item_ingredients", {
   menuItemId: integer("menu_item_id").notNull().references(() => menuItems.id, { onDelete: "cascade" }),
   ingredientId: integer("ingredient_id").notNull().references(() => ingredients.id, { onDelete: "cascade" }),
-}, (table) => ({
-  pk: primaryKey({ columns: [table.menuItemId, table.ingredientId] }),
-}));
+}, (table) => [
+  primaryKey({ columns: [table.menuItemId, table.ingredientId] }),
+]);
 
 // Item Allergens (many-to-many)
 export const itemAllergens = pgTable("item_allergens", {
   menuItemId: integer("menu_item_id").notNull().references(() => menuItems.id, { onDelete: "cascade" }),
   allergenId: integer("allergen_id").notNull().references(() => allergens.id, { onDelete: "cascade" }),
-}, (table) => ({
-  pk: primaryKey({ columns: [table.menuItemId, table.allergenId] }),
-}));
+}, (table) => [
+  primaryKey({ columns: [table.menuItemId, table.allergenId] }),
+]);
 
 // Orders
 export const orders = pgTable("orders", {
@@ -140,7 +160,10 @@ export const orders = pgTable("orders", {
   deliveryLong: real("delivery_long"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  index("orders_chef_id_idx").on(table.chefId),
+  index("orders_status_idx").on(table.status),
+]);
 
 // Order Items
 export const orderItems = pgTable("order_items", {
@@ -150,15 +173,17 @@ export const orderItems = pgTable("order_items", {
   quantity: integer("quantity").notNull(),
   priceAtOrder: real("price_at_order").notNull(),
   itemTitle: text("item_title").notNull(),
-});
+}, (table) => [
+  index("order_items_order_id_idx").on(table.orderId),
+]);
 
 // User Favorites (for demo, stored in localStorage, but schema for future)
 export const userFavorites = pgTable("user_favorites", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   chefId: integer("chef_id").notNull().references(() => chefProfiles.id, { onDelete: "cascade" }),
   sessionId: text("session_id").notNull(),
-}, (table) => ({
-}));
+}, (table) => [
+]);
 
 // Relations
 export const chefProfilesRelations = relations(chefProfiles, ({ many }) => ({
@@ -305,10 +330,10 @@ export const userFavoritesRelations = relations(userFavorites, ({ one }) => ({
 }));
 
 // Insert Schemas
-export const insertChefProfileSchema = createInsertSchema(chefProfiles).omit({ id: true });
+export const insertChefProfileSchema = createInsertSchema(chefProfiles).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertMenuSchema = createInsertSchema(menus).omit({ id: true });
 export const insertMenuDaySlotSchema = createInsertSchema(menuDaySlots).omit({ id: true });
-export const insertMenuItemSchema = createInsertSchema(menuItems).omit({ id: true });
+export const insertMenuItemSchema = createInsertSchema(menuItems).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertMenuItemAssignmentSchema = createInsertSchema(menuItemAssignments).omit({ id: true });
 export const insertAssignmentServingOptionSchema = createInsertSchema(assignmentServingOptions).omit({ id: true });
 export const insertServingOptionSchema = createInsertSchema(servingOptions).omit({ id: true });
