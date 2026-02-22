@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { Link } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -6,14 +7,22 @@ import {
   Plus,
   Minus,
   AlertTriangle,
-  UtensilsCrossed
+  UtensilsCrossed,
+  MapPin,
+  Truck,
+  Store,
+  Clock,
 } from "lucide-react";
+import { format, parseISO } from "date-fns";
 import { useCartStore } from "@/lib/cart-store";
 import type { MenuItemWithDetails, ChefProfile, ServingOption } from "@shared/schema";
 
 interface MenuItemCardProps {
   item: MenuItemWithDetails;
-  chef: ChefProfile;
+  chef: ChefProfile & { distance?: number };
+  daySlotId: number;
+  daySlotDate: string;
+  orderCutoffDate?: string;
   onAddToCart?: () => void;
 }
 
@@ -21,56 +30,56 @@ function getPriceDisplay(servingOptions: ServingOption[] | undefined) {
   if (!servingOptions || servingOptions.length === 0) {
     return { display: "Price TBD", defaultOption: undefined };
   }
-  
+
   const defaultOption = servingOptions.find(o => o.isDefault === 1) || servingOptions[0];
-  
+
   if (servingOptions.length === 1) {
-    return { 
-      display: `$${defaultOption.price.toFixed(2)}`, 
+    return {
+      display: `$${defaultOption.price.toFixed(2)}`,
       label: defaultOption.label,
-      defaultOption 
+      defaultOption
     };
   }
-  
+
   const prices = servingOptions.map(o => o.price);
   const minPrice = Math.min(...prices);
   const maxPrice = Math.max(...prices);
-  
-  return { 
+
+  return {
     display: `$${minPrice.toFixed(2)} - $${maxPrice.toFixed(2)}`,
     label: defaultOption.label,
-    defaultOption 
+    defaultOption
   };
 }
 
-export const MenuItemCard = memo(function MenuItemCard({ item, chef, onAddToCart }: MenuItemCardProps) {
+export const MenuItemCard = memo(function MenuItemCard({ item, chef, daySlotId, daySlotDate, orderCutoffDate, onAddToCart }: MenuItemCardProps) {
   const { items, addItem, updateQuantity } = useCartStore();
-  
-  const cartItem = items.find((i) => i.menuItem.id === item.id);
+
+  const cartItem = items.find((i) => i.menuItem.id === item.id && i.daySlotId === daySlotId);
   const quantity = cartItem?.quantity || 0;
   const priceInfo = getPriceDisplay(item.servingOptions);
-  
+
   const coverPhotoUrl = item.coverPhoto || (item.photos && item.photos.length > 0 ? item.photos[0].imageUrl : undefined);
 
   const handleAdd = () => {
-    const success = addItem(item, chef);
-    if (success && onAddToCart) {
+    addItem(item, chef, daySlotId, daySlotDate);
+    if (onAddToCart) {
       onAddToCart();
     }
   };
 
   const handleIncrement = () => {
-    updateQuantity(item.id, quantity + 1);
+    updateQuantity(item.id, daySlotId, quantity + 1);
   };
 
   const handleDecrement = () => {
     if (quantity > 0) {
-      updateQuantity(item.id, quantity - 1);
+      updateQuantity(item.id, daySlotId, quantity - 1);
     }
   };
 
   return (
-    <Card 
+    <Card
       className="overflow-hidden transition-all"
       data-testid={`card-menu-item-${item.id}`}
     >
@@ -82,6 +91,11 @@ export const MenuItemCard = memo(function MenuItemCard({ item, chef, onAddToCart
               alt={item.title}
               className="absolute inset-0 w-full h-full object-cover"
               data-testid={`image-menu-item-${item.id}`}
+              referrerPolicy="no-referrer"
+              onError={(e) => {
+                console.warn('[IMAGE ERROR]', item.title, coverPhotoUrl);
+                (e.target as HTMLImageElement).style.display = 'none';
+              }}
             />
           ) : (
             <div className="absolute inset-0 flex items-center justify-center">
@@ -91,6 +105,39 @@ export const MenuItemCard = memo(function MenuItemCard({ item, chef, onAddToCart
         </div>
 
         <div className="p-4 space-y-3">
+          {/* Chef info row */}
+          <div className="flex items-center gap-1 text-xs text-muted-foreground flex-wrap">
+            <Link href={`/chef/${(chef as any).slug || chef.id}`}>
+              <span className="font-medium text-foreground hover:text-primary transition-colors cursor-pointer">
+                {chef.name}
+              </span>
+            </Link>
+            {chef.distance !== undefined && (
+              <>
+                <span>|</span>
+                <span className="flex items-center gap-0.5">
+                  <MapPin className="h-3 w-3" />
+                  {chef.distance.toFixed(1)} mi
+                </span>
+              </>
+            )}
+            <span>|</span>
+            {(chef as any).fulfillmentMethod === "both" ? (
+              <span className="flex items-center gap-0.5">
+                <Truck className="h-3 w-3" />
+                <Store className="h-3 w-3" />
+              </span>
+            ) : (chef as any).fulfillmentMethod === "delivery" ? (
+              <span className="flex items-center gap-0.5">
+                <Truck className="h-3 w-3" />
+              </span>
+            ) : (
+              <span className="flex items-center gap-0.5">
+                <Store className="h-3 w-3" />
+              </span>
+            )}
+          </div>
+
           <div className="flex items-start justify-between gap-2">
             <div className="flex-1 min-w-0">
               <h4 className="font-semibold text-foreground">{item.title}</h4>
@@ -108,12 +155,19 @@ export const MenuItemCard = memo(function MenuItemCard({ item, chef, onAddToCart
             </div>
           </div>
 
+          {orderCutoffDate && (
+            <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+              <Clock className="h-3.5 w-3.5" />
+              <span>Order by {format(parseISO(orderCutoffDate), "EEE h:mma")}</span>
+            </div>
+          )}
+
           {item.allergens && item.allergens.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {item.allergens.map((allergen) => (
-                <Badge 
-                  key={allergen.id} 
-                  variant="outline" 
+                <Badge
+                  key={allergen.id}
+                  variant="outline"
                   className="text-xs bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800"
                 >
                   <AlertTriangle className="h-3 w-3 mr-1" />

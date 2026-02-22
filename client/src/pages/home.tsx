@@ -35,12 +35,18 @@ import {
   Loader2,
   X,
   UtensilsCrossed,
-  Calendar,
+  Truck,
+  Store,
+  AlertTriangle,
 } from "lucide-react";
 import { FaInstagram, FaXTwitter, FaFacebookF, FaTiktok } from "react-icons/fa6";
 import { Header } from "@/components/header";
+import { MenuItemCard } from "@/components/menu-item-card";
+import { DaySelector } from "@/components/day-selector";
+import { MultiSelectFilter } from "@/components/multi-select-filter";
 import { useLocationStore, getCoordinatesFromZip, getLocationNameFromZip } from "@/lib/location-store";
 import { getDistance } from "geolib";
+import { parseISO, isBefore } from "date-fns";
 import type { ChefProfileWithDaySlots } from "@shared/schema";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -72,16 +78,17 @@ function getRating(chefId: number) {
 
 export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeCuisine, setActiveCuisine] = useState("All");
+  const [activeCuisines, setActiveCuisines] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState("nearest");
   const [newsletterEmail, setNewsletterEmail] = useState("");
   const [newsletterSubmitted, setNewsletterSubmitted] = useState(false);
   const [placeholderIndex, setPlaceholderIndex] = useState(0);
   const [manualLocationInput, setManualLocationInput] = useState("");
   const [showNoChefs, setShowNoChefs] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [excludedAllergens, setExcludedAllergens] = useState<number[]>([]);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const cuisineScrollRef = useRef<HTMLDivElement>(null);
 
   const {
     zipCode, lat, lng, locationName, geoStatus,
@@ -91,7 +98,19 @@ export default function Home() {
   // ── Fetch real chef data from API ──
   const { data: apiChefs, isLoading } = useQuery<ChefProfileWithDaySlots[]>({
     queryKey: ["/api/chefs"],
+    staleTime: 0, // Always refetch to ensure fresh data after server restarts
   });
+
+  // Debug: log API response to verify photos are reaching the client
+  useEffect(() => {
+    if (apiChefs && apiChefs.length > 0) {
+      const c = apiChefs[0];
+      const firstItem = c.daySlots?.[0]?.items?.[0];
+      console.log('[IMAGE DEBUG] First chef:', c.name, 'profileImageUrl:', c.profileImageUrl);
+      console.log('[IMAGE DEBUG] First item:', firstItem?.title, 'coverPhoto:', firstItem?.coverPhoto, 'photos:', firstItem?.photos?.length);
+      console.log('[IMAGE DEBUG] Total chefs with profileImageUrl:', apiChefs.filter(ch => ch.profileImageUrl).length, '/', apiChefs.length);
+    }
+  }, [apiChefs]);
 
   // Attach distance to each chef
   const chefsWithDistance = useMemo(() => {
@@ -109,11 +128,60 @@ export default function Home() {
   }, [apiChefs, lat, lng]);
 
   // ── Dynamic cuisine filters from real data ──
-  const cuisineFilters = useMemo(() => {
+  const cuisineOptions = useMemo(() => {
     const tags = new Set<string>();
     chefsWithDistance.forEach((c) => c.cuisineTags?.forEach((t) => tags.add(t)));
-    return ["All", ...Array.from(tags).sort()];
+    return Array.from(tags).sort().map((t) => ({ value: t, label: t }));
   }, [chefsWithDistance]);
+
+  // ── Compute available dates from all chefs' day slots ──
+  const availableDates = useMemo(() => {
+    const dateMap = new Map<string, Date>();
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+
+    chefsWithDistance.forEach((chef) => {
+      chef.daySlots?.forEach((slot) => {
+        const slotDate = parseISO(slot.date);
+        if (isBefore(slotDate, now)) return;
+        // Also filter by cutoff
+        if (slot.orderCutoffDate) {
+          const cutoff = parseISO(slot.orderCutoffDate);
+          if (isBefore(cutoff, new Date())) return;
+        }
+        const key = slotDate.toDateString();
+        if (!dateMap.has(key)) {
+          dateMap.set(key, slotDate);
+        }
+      });
+    });
+
+    return Array.from(dateMap.values()).sort((a, b) => a.getTime() - b.getTime());
+  }, [chefsWithDistance]);
+
+  // Extract unique allergens from all menu items
+  const uniqueAllergens = useMemo(() => {
+    const allergenMap = new Map<number, string>();
+    chefsWithDistance.forEach((chef) => {
+      chef.daySlots?.forEach((slot) => {
+        slot.items?.forEach((item: any) => {
+          item.allergens?.forEach((a: any) => {
+            if (!allergenMap.has(a.id)) {
+              allergenMap.set(a.id, a.name);
+            }
+          });
+        });
+      });
+    });
+    return Array.from(allergenMap.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [chefsWithDistance]);
+
+  const allergenOptions = useMemo(
+    () => uniqueAllergens.map((a) => ({ value: String(a.id), label: a.name })),
+    [uniqueAllergens]
+  );
 
   // Cycle placeholder text
   useEffect(() => {
@@ -172,10 +240,12 @@ export default function Home() {
 
     let chefs = [...chefsWithDistance];
 
-    // Cuisine filter
-    if (activeCuisine !== "All") {
+    // Cuisine filter (multi-select OR logic)
+    if (activeCuisines.length > 0) {
       chefs = chefs.filter((c) =>
-        c.cuisineTags?.some((t) => t.toLowerCase().includes(activeCuisine.toLowerCase()))
+        c.cuisineTags?.some((t) =>
+          activeCuisines.some((ac) => t.toLowerCase().includes(ac.toLowerCase()))
+        )
       );
     }
 
@@ -262,7 +332,107 @@ export default function Home() {
     }
 
     return { filteredChefs: chefs, dishResults: dishes };
-  }, [chefsWithDistance, searchLower, activeCuisine, sortBy, showNoChefs, zipCode]);
+  }, [chefsWithDistance, searchLower, activeCuisines, sortBy, showNoChefs, zipCode]);
+
+  // ── Day Menu: flat list of items available on the selected day ──
+  type FlatMenuItem = {
+    item: any;
+    chef: ChefProfileWithDaySlots & { distance?: number };
+    slotId: number;
+    slotDate: string | Date;
+    orderCutoffDate?: string | Date;
+  };
+
+  const flatDayMenuItems = useMemo(() => {
+    if (showNoChefs || zipCode === "00000") return [] as FlatMenuItem[];
+
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+
+    // Apply cuisine filter (multi-select OR logic)
+    let chefs = [...chefsWithDistance];
+    if (activeCuisines.length > 0) {
+      chefs = chefs.filter((c) =>
+        c.cuisineTags?.some((t) =>
+          activeCuisines.some((ac) => t.toLowerCase().includes(ac.toLowerCase()))
+        )
+      );
+    }
+
+    const items: FlatMenuItem[] = [];
+
+    for (const chef of chefs) {
+      if (!chef.daySlots) continue;
+
+      for (const slot of chef.daySlots) {
+        const slotDate = parseISO(slot.date);
+        if (isBefore(slotDate, now)) continue;
+        if (slot.orderCutoffDate) {
+          const cutoff = parseISO(slot.orderCutoffDate);
+          if (isBefore(cutoff, new Date())) continue;
+        }
+
+        // If a specific date is selected, filter to that date
+        if (selectedDate && slotDate.toDateString() !== selectedDate.toDateString()) continue;
+
+        let slotItems = slot.items || [];
+
+        // Apply search filter
+        if (searchLower) {
+          slotItems = slotItems.filter((item: any) => {
+            const titleMatch = item.title.toLowerCase().includes(searchLower);
+            const descMatch = item.description?.toLowerCase().includes(searchLower);
+            const ingredientMatch = item.ingredients?.some((ing: any) =>
+              ing.name.toLowerCase().includes(searchLower)
+            );
+            const chefNameMatch = chef.name.toLowerCase().includes(searchLower);
+            const cuisineMatch = chef.cuisineTags?.some((t: string) =>
+              t.toLowerCase().includes(searchLower)
+            );
+            return titleMatch || descMatch || ingredientMatch || chefNameMatch || cuisineMatch;
+          });
+        }
+
+        // Apply allergen exclusion filter
+        if (excludedAllergens.length > 0) {
+          slotItems = slotItems.filter((item: any) => {
+            const itemAllergenIds = item.allergens?.map((a: any) => a.id) || [];
+            return !excludedAllergens.some((excluded) => itemAllergenIds.includes(excluded));
+          });
+        }
+
+        for (const item of slotItems) {
+          items.push({
+            item,
+            chef,
+            slotId: slot.id,
+            slotDate: slot.date,
+            orderCutoffDate: slot.orderCutoffDate,
+          });
+        }
+      }
+    }
+
+    // Sort the flat list
+    switch (sortBy) {
+      case "nearest":
+        items.sort((a, b) => (a.chef.distance ?? 999) - (b.chef.distance ?? 999));
+        break;
+      case "highest":
+        items.sort((a, b) => getRating(b.chef.id).rating - getRating(a.chef.id).rating);
+        break;
+      case "newest": {
+        const toTime = (d: Date | string | null | undefined) => d ? new Date(d).getTime() : 0;
+        items.sort((a, b) => toTime(b.chef.createdAt) - toTime(a.chef.createdAt));
+        break;
+      }
+    }
+
+    return items;
+  }, [chefsWithDistance, selectedDate, searchLower, activeCuisines, sortBy, showNoChefs, zipCode, excludedAllergens]);
+
+  const totalDayMenuItems = flatDayMenuItems.length;
+  const uniqueChefCount = new Set(flatDayMenuItems.map((fi) => fi.chef.id)).size;
 
   const featuredChefs = useMemo(
     () => chefsWithDistance.slice(0, 6),
@@ -281,6 +451,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-background">
       <Header onSearchChange={setSearchQuery} searchQuery={searchQuery} />
+
 
       {/* ── Hero Section ── */}
       <section className="bg-gradient-to-br from-primary/10 via-accent/5 to-background">
@@ -383,31 +554,28 @@ export default function Home() {
                 )}
               </div>
 
-              {/* Cuisine quick-filter pills */}
-              <div
-                ref={cuisineScrollRef}
-                className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide -mx-4 px-4 sm:-mx-0 sm:px-0"
-                role="tablist"
-                aria-label="Filter by cuisine"
-              >
-                {cuisineFilters.map((cuisine) => (
-                  <button
-                    key={cuisine}
-                    role="tab"
-                    aria-selected={activeCuisine === cuisine}
-                    onClick={() => setActiveCuisine(cuisine)}
-                    className={`
-                      whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-medium transition-all
-                      shrink-0 border
-                      ${activeCuisine === cuisine
-                        ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                        : "bg-card text-muted-foreground border-border hover:bg-accent hover:text-accent-foreground"
-                      }
-                    `}
-                  >
-                    {cuisine}
-                  </button>
-                ))}
+              {/* Multi-select filter dropdowns */}
+              <div className="flex items-center justify-center gap-2 flex-wrap">
+                <MultiSelectFilter
+                  label="Cuisine"
+                  icon={<UtensilsCrossed className="h-3.5 w-3.5" />}
+                  options={cuisineOptions}
+                  selected={activeCuisines}
+                  onSelectionChange={setActiveCuisines}
+                  searchPlaceholder="Search cuisines..."
+                  emptyText="No cuisines found."
+                />
+                <MultiSelectFilter
+                  label="Exclude Allergens"
+                  icon={<AlertTriangle className="h-3.5 w-3.5" />}
+                  options={allergenOptions}
+                  selected={excludedAllergens.map(String)}
+                  onSelectionChange={(vals) =>
+                    setExcludedAllergens(vals.map(Number))
+                  }
+                  searchPlaceholder="Search allergens..."
+                  emptyText="No allergens found."
+                />
               </div>
             </div>
 
@@ -428,6 +596,91 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      {/* ── Day Selector ── */}
+      {!isNoChefs && !isLoading && availableDates.length > 0 && (
+        <section className="border-b bg-background/80 backdrop-blur-sm sticky top-0 z-10">
+          <div className="container mx-auto px-4 py-3">
+            <DaySelector
+              availableDates={availableDates}
+              selectedDate={selectedDate}
+              onSelectDate={setSelectedDate}
+            />
+          </div>
+        </section>
+      )}
+
+      {/* ── Day Menu Section ── */}
+      {!isNoChefs && !isLoading && flatDayMenuItems.length > 0 && (
+        <section className="container mx-auto px-4 py-8 md:py-10">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+            <div>
+              <h2 className="text-xl sm:text-2xl font-semibold">
+                {selectedDate
+                  ? `Menu for ${selectedDate.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}`
+                  : "All Upcoming Menus"}
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                {totalDayMenuItems} item{totalDayMenuItems !== 1 ? "s" : ""} from {uniqueChefCount} chef{uniqueChefCount !== 1 ? "s" : ""}
+                {excludedAllergens.length > 0 && (
+                  <span className="ml-1">
+                    ({excludedAllergens.length} allergen{excludedAllergens.length !== 1 ? "s" : ""} excluded)
+                  </span>
+                )}
+              </p>
+            </div>
+
+            <Select value={sortBy} onValueChange={setSortBy}>
+              <SelectTrigger className="w-[180px]" aria-label="Sort items">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="nearest">Nearest first</SelectItem>
+                <SelectItem value="highest">Highest rated</SelectItem>
+                <SelectItem value="newest">Newest chefs</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {flatDayMenuItems.map(({ item, chef, slotId, slotDate, orderCutoffDate }) => (
+              <MenuItemCard
+                key={`${slotId}-${item.id}`}
+                item={item}
+                chef={chef}
+                daySlotId={slotId}
+                daySlotDate={String(slotDate)}
+                orderCutoffDate={orderCutoffDate ? String(orderCutoffDate) : undefined}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Empty state for day menu when date selected but no items */}
+      {!isNoChefs && !isLoading && availableDates.length > 0 && flatDayMenuItems.length === 0 && (
+        <section className="container mx-auto px-4 py-12 text-center">
+          <UtensilsCrossed className="h-12 w-12 mx-auto text-muted-foreground/30 mb-4" />
+          <h3 className="text-lg font-medium mb-2">No menus available</h3>
+          <p className="text-muted-foreground text-sm">
+            {searchLower
+              ? `No items match "${searchQuery}" for this day. Try a different search or day.`
+              : "No items available for this day. Try selecting a different day."}
+          </p>
+          <Button
+            variant="outline"
+            className="mt-4"
+            onClick={() => {
+              setSearchQuery("");
+              setActiveCuisines([]);
+              setSelectedDate(null);
+              setExcludedAllergens([]);
+            }}
+          >
+            Clear filters
+          </Button>
+        </section>
+      )}
 
       {/* ── Chef Results or Newsletter ── */}
       <section className="container mx-auto px-4 py-8 md:py-12">
@@ -472,121 +725,34 @@ export default function Home() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
             >
-              {/* ── Matching Dishes Section ── */}
-              {searchLower && dishResults.length > 0 && (
-                <div className="mb-10">
-                  <h2 className="text-xl sm:text-2xl font-semibold mb-1">
-                    Matching Dishes
-                  </h2>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    {dishResults.length} dish{dishResults.length !== 1 ? "es" : ""} found
-                    for "{searchQuery}"
-                  </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {dishResults.slice(0, 9).map((dish, i) => (
-                      <Link key={`${dish.chef.id}-${dish.item.id}-${i}`} href={`/chef/${dish.chef.slug}`}>
-                        <Card className="group hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 cursor-pointer h-full">
-                          <CardContent className="p-4">
-                            <div className="flex gap-3">
-                              {/* Dish image */}
-                              <div className="flex-shrink-0 w-20 h-20 rounded-lg bg-gradient-to-br from-primary/20 to-accent/30 flex items-center justify-center overflow-hidden">
-                                {dish.coverPhoto ? (
-                                  <img
-                                    src={dish.coverPhoto}
-                                    alt={dish.item.title}
-                                    className="w-full h-full object-cover"
-                                  />
-                                ) : (
-                                  <UtensilsCrossed className="h-7 w-7 text-primary/40" />
-                                )}
-                              </div>
-
-                              <div className="flex-1 min-w-0">
-                                <h4 className="font-semibold text-sm truncate group-hover:text-primary transition-colors">
-                                  {dish.item.title}
-                                </h4>
-                                <p className="text-xs text-muted-foreground mt-0.5">
-                                  by {dish.chef.name}
-                                </p>
-
-                                {/* Price */}
-                                {dish.minPrice > 0 && (
-                                  <p className="text-sm font-semibold mt-1.5">
-                                    {dish.minPrice === dish.maxPrice
-                                      ? `$${dish.minPrice.toFixed(2)}`
-                                      : `$${dish.minPrice.toFixed(2)} – $${dish.maxPrice.toFixed(2)}`}
-                                  </p>
-                                )}
-
-                                {/* Available dates */}
-                                {dish.dates.length > 0 && (
-                                  <div className="flex items-center gap-1 mt-1.5 text-xs text-muted-foreground">
-                                    <Calendar className="h-3 w-3" />
-                                    <span>
-                                      {dish.dates
-                                        .sort((a, b) => a.getTime() - b.getTime())
-                                        .slice(0, 3)
-                                        .map((d) =>
-                                          d.toLocaleDateString("en-US", {
-                                            month: "short",
-                                            day: "numeric",
-                                          })
-                                        )
-                                        .join(", ")}
-                                      {dish.dates.length > 3 && ` +${dish.dates.length - 3} more`}
-                                    </span>
-                                  </div>
-                                )}
-
-                                {/* Distance */}
-                                {dish.chef.distance !== undefined && (
-                                  <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
-                                    <MapPin className="h-3 w-3" />
-                                    {dish.chef.distance.toFixed(1)} mi away
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      </Link>
-                    ))}
-                  </div>
-                  {dishResults.length > 9 && (
-                    <p className="text-sm text-muted-foreground text-center mt-3">
-                      Showing 9 of {dishResults.length} matching dishes
-                    </p>
-                  )}
-
-                  <div className="border-t mt-8 pt-6" />
-                </div>
-              )}
-
-              {/* Sort bar */}
+              {/* Explore Chefs heading */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
                 <div>
                   <h2 className="text-xl sm:text-2xl font-semibold">
                     {searchQuery
                       ? `Chefs matching "${searchQuery}"`
-                      : activeCuisine !== "All"
-                        ? `${activeCuisine} Chefs`
-                        : "Chefs Near You"}
+                      : activeCuisines.length > 0
+                        ? `${activeCuisines.slice(0, 2).join(", ")} Chefs`
+                        : "Explore Chefs"}
                   </h2>
                   <p className="text-sm text-muted-foreground">
                     {filteredChefs.length} chef{filteredChefs.length !== 1 ? "s" : ""} available
                   </p>
                 </div>
 
-                <Select value={sortBy} onValueChange={setSortBy}>
-                  <SelectTrigger className="w-[180px]" aria-label="Sort chefs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="nearest">Nearest first</SelectItem>
-                    <SelectItem value="highest">Highest rated</SelectItem>
-                    <SelectItem value="newest">Newest chefs</SelectItem>
-                  </SelectContent>
-                </Select>
+                {/* Sort moved to day menu section; keep for chef grid when no day menu */}
+                {flatDayMenuItems.length === 0 && (
+                  <Select value={sortBy} onValueChange={setSortBy}>
+                    <SelectTrigger className="w-[180px]" aria-label="Sort chefs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="nearest">Nearest first</SelectItem>
+                      <SelectItem value="highest">Highest rated</SelectItem>
+                      <SelectItem value="newest">Newest chefs</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
 
               {/* Chef card grid */}
@@ -608,7 +774,8 @@ export default function Home() {
                     className="mt-4"
                     onClick={() => {
                       setSearchQuery("");
-                      setActiveCuisine("All");
+                      setActiveCuisines([]);
+                      setExcludedAllergens([]);
                     }}
                   >
                     Clear filters
@@ -630,13 +797,13 @@ export default function Home() {
             {[
               {
                 icon: <Search className="h-7 w-7" />,
-                title: "Find a Chef",
-                desc: "Enter your location and browse local chefs and their menus",
+                title: "Pick a Day",
+                desc: "Choose an upcoming day and browse all available homemade food near you",
               },
               {
                 icon: <ShoppingBag className="h-7 w-7" />,
-                title: "Place Your Order",
-                desc: "Choose your dishes and schedule a pickup or delivery",
+                title: "Build Your Cart",
+                desc: "Add dishes from multiple chefs and days into a single cart",
               },
               {
                 icon: <Heart className="h-7 w-7" />,
@@ -807,6 +974,10 @@ function ChefCardHome({ chef, index }: { chef: ChefProfileWithDaySlots & { dista
                   src={sampleDishImage}
                   alt={`Dish from ${chef.name}`}
                   className="w-full h-full object-cover"
+                  referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = 'none';
+                  }}
                 />
               ) : (
                 <div className="absolute inset-0 flex items-center justify-center opacity-20">
@@ -830,7 +1001,7 @@ function ChefCardHome({ chef, index }: { chef: ChefProfileWithDaySlots & { dista
               {/* Avatar + name */}
               <div className="flex items-center gap-3">
                 <Avatar className="h-11 w-11 shrink-0 ring-2 ring-background shadow-sm">
-                  <AvatarImage src={chef.profileImageUrl || undefined} alt={chef.name} />
+                  <AvatarImage src={chef.profileImageUrl || undefined} alt={chef.name} referrerPolicy="no-referrer" />
                   <AvatarFallback className="bg-primary/10 text-primary font-semibold text-sm">
                     {chef.name.split(" ").map((n) => n[0]).join("").toUpperCase()}
                   </AvatarFallback>
@@ -956,7 +1127,7 @@ function NoChefSection({
             className="bg-primary/10 rounded-xl p-6"
           >
             <p className="text-lg font-semibold text-primary mb-1">
-              You're on the list! 🎉
+              You're on the list!
             </p>
             <p className="text-sm text-muted-foreground">
               We'll reach out as soon as chefs are available near you.

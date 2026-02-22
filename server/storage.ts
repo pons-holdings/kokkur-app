@@ -244,10 +244,19 @@ export class DatabaseStorage implements IStorage {
       slotsByChefId.set(slot.chefId, list);
     }
 
-    return chefsData.map(chef => ({
+    const result = chefsData.map(chef => ({
       ...chef,
       daySlots: slotsByChefId.get(chef.id) || [],
     }));
+
+    // Diagnostic: log sample data to verify photos are included
+    if (result.length > 0) {
+      const c = result[0];
+      const firstItem = c.daySlots?.[0]?.items?.[0];
+      console.log(`getChefs() — chef "${c.name}": profileImageUrl=${c.profileImageUrl ? 'SET' : 'MISSING'}, daySlots=${c.daySlots?.length}, firstItem="${firstItem?.title || 'NONE'}": photos=${firstItem?.photos?.length ?? 'N/A'}, coverPhoto=${firstItem?.coverPhoto ? 'YES' : 'NO'}`);
+    }
+
+    return result;
   }
 
   async getChefBySlug(slug: string): Promise<ChefProfileWithDaySlots | undefined> {
@@ -782,11 +791,24 @@ export class DatabaseStorage implements IStorage {
   }
 
   async seedData(): Promise<void> {
-    const existingChefs = await db.select().from(chefProfiles);
-    if (existingChefs.length > 0) {
-      console.log("Database already seeded, skipping...");
-      return;
-    }
+   try {
+    // Always re-seed: clear all tables in dependency order
+    await db.delete(assignmentServingOptions);
+    await db.delete(orderItems);
+    await db.delete(orders);
+    await db.delete(menuItemAssignments);
+    await db.delete(itemAllergens);
+    await db.delete(itemIngredients);
+    await db.delete(itemPhotos);
+    await db.delete(ingredientAllergens);
+    await db.delete(servingOptions);
+    await db.delete(menuItems);
+    await db.delete(menuDaySlots);
+    await db.delete(menus);
+    await db.delete(allergens);
+    await db.delete(ingredients);
+    await db.delete(userFavorites);
+    await db.delete(chefProfiles);
 
     console.log("Seeding database...");
 
@@ -849,6 +871,7 @@ export class DatabaseStorage implements IStorage {
       serviceRadius: 8,
       fulfillmentMethod: "both",
       deliveryFee: 5.99,
+      profileImageUrl: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=400&h=400&fit=crop&crop=face",
     });
 
     const chef2 = await this.createChef({
@@ -862,6 +885,7 @@ export class DatabaseStorage implements IStorage {
       serviceRadius: 6,
       fulfillmentMethod: "both",
       deliveryFee: 4.99,
+      profileImageUrl: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400&h=400&fit=crop&crop=face",
     });
 
     const chef3 = await this.createChef({
@@ -875,6 +899,7 @@ export class DatabaseStorage implements IStorage {
       serviceRadius: 7,
       fulfillmentMethod: "delivery",
       deliveryFee: 6.99,
+      profileImageUrl: "https://images.unsplash.com/photo-1556911220-e15b29be8c8f?w=400&h=400&fit=crop&crop=face",
     });
 
     const chef4 = await this.createChef({
@@ -888,6 +913,7 @@ export class DatabaseStorage implements IStorage {
       serviceRadius: 5,
       fulfillmentMethod: "both",
       deliveryFee: 4.99,
+      profileImageUrl: "https://images.unsplash.com/photo-1607631568010-a87245c0daf8?w=400&h=400&fit=crop&crop=face",
     });
 
     const chef5 = await this.createChef({
@@ -900,6 +926,7 @@ export class DatabaseStorage implements IStorage {
       locationName: "Midtown East, Manhattan",
       serviceRadius: 6,
       fulfillmentMethod: "pickup",
+      profileImageUrl: "https://images.unsplash.com/photo-1577219491135-ce391730fb2c?w=400&h=400&fit=crop&crop=face",
     });
 
     const chef6 = await this.createChef({
@@ -913,6 +940,7 @@ export class DatabaseStorage implements IStorage {
       serviceRadius: 5,
       fulfillmentMethod: "both",
       deliveryFee: 3.99,
+      profileImageUrl: "https://images.unsplash.com/photo-1594744803329-e58b31de8bf5?w=400&h=400&fit=crop&crop=face",
     });
 
     const chef7 = await this.createChef({
@@ -926,6 +954,7 @@ export class DatabaseStorage implements IStorage {
       serviceRadius: 8,
       fulfillmentMethod: "both",
       deliveryFee: 5.99,
+      profileImageUrl: "https://images.unsplash.com/photo-1560807707-8cc77767d783?w=400&h=400&fit=crop&crop=face",
     });
 
     const chef8 = await this.createChef({
@@ -939,6 +968,7 @@ export class DatabaseStorage implements IStorage {
       serviceRadius: 10,
       fulfillmentMethod: "delivery",
       deliveryFee: 6.99,
+      profileImageUrl: "https://images.unsplash.com/photo-1589156280159-27698a70f29e?w=400&h=400&fit=crop&crop=face",
     });
 
     const chef9 = await this.createChef({
@@ -952,6 +982,7 @@ export class DatabaseStorage implements IStorage {
       serviceRadius: 7,
       fulfillmentMethod: "both",
       deliveryFee: 5.99,
+      profileImageUrl: "https://images.unsplash.com/photo-1531123897727-8f129e1688ce?w=400&h=400&fit=crop&crop=face",
     });
 
     const chef10 = await this.createChef({
@@ -964,6 +995,7 @@ export class DatabaseStorage implements IStorage {
       locationName: "Astoria, Queens",
       serviceRadius: 8,
       fulfillmentMethod: "pickup",
+      profileImageUrl: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&h=400&fit=crop&crop=face",
     });
 
     const chef11 = await this.createChef({
@@ -977,9 +1009,9 @@ export class DatabaseStorage implements IStorage {
       serviceRadius: 10,
       fulfillmentMethod: "delivery",
       deliveryFee: 7.99,
+      profileImageUrl: "https://images.unsplash.com/photo-1611432579699-484f7990b127?w=400&h=400&fit=crop&crop=face",
     });
 
-    // Create day slots directly for chefs (calendar-based architecture)
     // Use relative dates so seed data always shows upcoming offerings
     const today = new Date();
     today.setHours(12, 0, 0, 0);
@@ -989,69 +1021,10 @@ export class DatabaseStorage implements IStorage {
       return d;
     };
 
-    // Chef 1 (Maria) - 4 day slots staggered across next 10 days
-    const daySlot1_1 = await this.createDaySlot({ chefId: chef1.id, date: futureDate(1), orderCutoffDate: futureDate(0) });
-    const daySlot1_2 = await this.createDaySlot({ chefId: chef1.id, date: futureDate(4), orderCutoffDate: futureDate(3) });
-    const daySlot1_3 = await this.createDaySlot({ chefId: chef1.id, date: futureDate(7), orderCutoffDate: futureDate(6) });
-    const daySlot1_4 = await this.createDaySlot({ chefId: chef1.id, date: futureDate(10), orderCutoffDate: futureDate(9) });
-
-    // Chef 2 (Marco) - 4 day slots
-    const daySlot2_1 = await this.createDaySlot({ chefId: chef2.id, date: futureDate(2), orderCutoffDate: futureDate(1) });
-    const daySlot2_2 = await this.createDaySlot({ chefId: chef2.id, date: futureDate(5), orderCutoffDate: futureDate(4) });
-    const daySlot2_3 = await this.createDaySlot({ chefId: chef2.id, date: futureDate(8), orderCutoffDate: futureDate(7) });
-    const daySlot2_4 = await this.createDaySlot({ chefId: chef2.id, date: futureDate(11), orderCutoffDate: futureDate(10) });
-
-    // Chef 3 (Mei) - 5 day slots
-    const daySlot3_1 = await this.createDaySlot({ chefId: chef3.id, date: futureDate(1), orderCutoffDate: futureDate(0) });
-    const daySlot3_2 = await this.createDaySlot({ chefId: chef3.id, date: futureDate(3), orderCutoffDate: futureDate(2) });
-    const daySlot3_3 = await this.createDaySlot({ chefId: chef3.id, date: futureDate(6), orderCutoffDate: futureDate(5) });
-    const daySlot3_4 = await this.createDaySlot({ chefId: chef3.id, date: futureDate(8), orderCutoffDate: futureDate(7) });
-    const daySlot3_5 = await this.createDaySlot({ chefId: chef3.id, date: futureDate(11), orderCutoffDate: futureDate(10) });
-
-    // Chef 4 (Luna) - 3 day slots
-    const daySlot4_1 = await this.createDaySlot({ chefId: chef4.id, date: futureDate(2), orderCutoffDate: futureDate(1) });
-    const daySlot4_2 = await this.createDaySlot({ chefId: chef4.id, date: futureDate(5), orderCutoffDate: futureDate(4) });
-    const daySlot4_3 = await this.createDaySlot({ chefId: chef4.id, date: futureDate(9), orderCutoffDate: futureDate(8) });
-
-    // Chef 5 (Kenji) - 3 day slots
-    const daySlot5_1 = await this.createDaySlot({ chefId: chef5.id, date: futureDate(1), orderCutoffDate: futureDate(0) });
-    const daySlot5_2 = await this.createDaySlot({ chefId: chef5.id, date: futureDate(4), orderCutoffDate: futureDate(3) });
-    const daySlot5_3 = await this.createDaySlot({ chefId: chef5.id, date: futureDate(8), orderCutoffDate: futureDate(7) });
-
-    // Chef 6 (Sophie) - 3 day slots
-    const daySlot6_1 = await this.createDaySlot({ chefId: chef6.id, date: futureDate(3), orderCutoffDate: futureDate(2) });
-    const daySlot6_2 = await this.createDaySlot({ chefId: chef6.id, date: futureDate(6), orderCutoffDate: futureDate(5) });
-    const daySlot6_3 = await this.createDaySlot({ chefId: chef6.id, date: futureDate(10), orderCutoffDate: futureDate(9) });
-
-    // Chef 7 (Marcus) - 3 day slots
-    const daySlot7_1 = await this.createDaySlot({ chefId: chef7.id, date: futureDate(2), orderCutoffDate: futureDate(1) });
-    const daySlot7_2 = await this.createDaySlot({ chefId: chef7.id, date: futureDate(5), orderCutoffDate: futureDate(4) });
-    const daySlot7_3 = await this.createDaySlot({ chefId: chef7.id, date: futureDate(9), orderCutoffDate: futureDate(8) });
-
-    // Chef 8 (Denise) - 3 day slots
-    const daySlot8_1 = await this.createDaySlot({ chefId: chef8.id, date: futureDate(1), orderCutoffDate: futureDate(0) });
-    const daySlot8_2 = await this.createDaySlot({ chefId: chef8.id, date: futureDate(4), orderCutoffDate: futureDate(3) });
-    const daySlot8_3 = await this.createDaySlot({ chefId: chef8.id, date: futureDate(7), orderCutoffDate: futureDate(6) });
-
-    // Chef 9 (Nadine) - 3 day slots
-    const daySlot9_1 = await this.createDaySlot({ chefId: chef9.id, date: futureDate(3), orderCutoffDate: futureDate(2) });
-    const daySlot9_2 = await this.createDaySlot({ chefId: chef9.id, date: futureDate(6), orderCutoffDate: futureDate(5) });
-    const daySlot9_3 = await this.createDaySlot({ chefId: chef9.id, date: futureDate(10), orderCutoffDate: futureDate(9) });
-
-    // Chef 10 (Bobby) - 3 day slots
-    const daySlot10_1 = await this.createDaySlot({ chefId: chef10.id, date: futureDate(2), orderCutoffDate: futureDate(1) });
-    const daySlot10_2 = await this.createDaySlot({ chefId: chef10.id, date: futureDate(5), orderCutoffDate: futureDate(4) });
-    const daySlot10_3 = await this.createDaySlot({ chefId: chef10.id, date: futureDate(8), orderCutoffDate: futureDate(7) });
-
-    // Chef 11 (Priya) - 3 day slots
-    const daySlot11_1 = await this.createDaySlot({ chefId: chef11.id, date: futureDate(1), orderCutoffDate: futureDate(0) });
-    const daySlot11_2 = await this.createDaySlot({ chefId: chef11.id, date: futureDate(4), orderCutoffDate: futureDate(3) });
-    const daySlot11_3 = await this.createDaySlot({ chefId: chef11.id, date: futureDate(7), orderCutoffDate: futureDate(6) });
-
     const findAllergen = (name: string) => createdAllergens.find((a) => a.name === name)?.id || 0;
     const findIngredient = (name: string) => createdIngredients.find((i) => i.name === name)?.id || 0;
 
-    // Chef 1's items
+    // ── Chef 1 (Maria) items ──
     const item1 = await this.createMenuItem({
       chefId: chef1.id,
       title: "Chicken Enchiladas Verdes",
@@ -1061,11 +1034,7 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item1.id, servingSize: 2, label: "2 servings", price: 29.99, isDefault: 0 });
     await this.addItemAllergens(item1.id, [findAllergen("Milk")]);
     await this.addItemIngredients(item1.id, [findIngredient("Chicken"), findIngredient("Cheese"), findIngredient("Onions"), findIngredient("Rice")]);
-    await this.createItemPhoto({ menuItemId: item1.id, imageUrl: "/images/dishes/enchiladas-verdes.jpg", isCover: 1 });
-    await this.assignItemToDaySlot(daySlot1_1.id, item1.id);
-    await this.assignItemToDaySlot(daySlot1_2.id, item1.id);
-    await this.assignItemToDaySlot(daySlot1_3.id, item1.id);
-    await this.assignItemToDaySlot(daySlot1_4.id, item1.id);
+    await this.createItemPhoto({ menuItemId: item1.id, imageUrl: "https://images.unsplash.com/photo-1534352956036-cd81e27dd615?w=800&h=600&fit=crop", isCover: 1 });
 
     const item2 = await this.createMenuItem({
       chefId: chef1.id,
@@ -1076,9 +1045,7 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item2.id, servingSize: 12, label: "Full dozen", price: 26.99, isDefault: 0 });
     await this.addItemAllergens(item2.id, [findAllergen("Milk")]);
     await this.addItemIngredients(item2.id, [findIngredient("Cheese"), findIngredient("Bell Peppers")]);
-    await this.createItemPhoto({ menuItemId: item2.id, imageUrl: "/images/dishes/tamales.jpg", isCover: 1 });
-    await this.assignItemToDaySlot(daySlot1_1.id, item2.id);
-    await this.assignItemToDaySlot(daySlot1_3.id, item2.id);
+    await this.createItemPhoto({ menuItemId: item2.id, imageUrl: "https://images.unsplash.com/photo-1630409351241-e90e7f5e434d?w=800&h=600&fit=crop", isCover: 1 });
 
     const item3 = await this.createMenuItem({
       chefId: chef1.id,
@@ -1088,11 +1055,9 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item3.id, servingSize: 1, label: "6 tacos", price: 18.99, isDefault: 1 });
     await this.createServingOption({ menuItemId: item3.id, servingSize: 2, label: "12 tacos (party size)", price: 34.99, isDefault: 0 });
     await this.addItemIngredients(item3.id, [findIngredient("Pork"), findIngredient("Onions"), findIngredient("Garlic")]);
-    await this.createItemPhoto({ menuItemId: item3.id, imageUrl: "/images/dishes/carnitas-tacos.jpg", isCover: 1 });
-    await this.assignItemToDaySlot(daySlot1_2.id, item3.id);
-    await this.assignItemToDaySlot(daySlot1_4.id, item3.id);
+    await this.createItemPhoto({ menuItemId: item3.id, imageUrl: "https://images.unsplash.com/photo-1551504734-5ee1c4a1479b?w=800&h=600&fit=crop", isCover: 1 });
 
-    // Chef 2's items
+    // ── Chef 2 (Antonio) items ──
     const item4 = await this.createMenuItem({
       chefId: chef2.id,
       title: "Homemade Lasagna",
@@ -1102,11 +1067,7 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item4.id, servingSize: 4, label: "Full tray (4-6 servings)", price: 44.99, isDefault: 0 });
     await this.addItemAllergens(item4.id, [findAllergen("Milk"), findAllergen("Eggs"), findAllergen("Wheat")]);
     await this.addItemIngredients(item4.id, [findIngredient("Beef"), findIngredient("Pasta"), findIngredient("Cheese"), findIngredient("Tomatoes")]);
-    await this.createItemPhoto({ menuItemId: item4.id, imageUrl: "/images/dishes/lasagna.jpg", isCover: 1 });
-    await this.assignItemToDaySlot(daySlot2_1.id, item4.id);
-    await this.assignItemToDaySlot(daySlot2_2.id, item4.id);
-    await this.assignItemToDaySlot(daySlot2_3.id, item4.id);
-    await this.assignItemToDaySlot(daySlot2_4.id, item4.id);
+    await this.createItemPhoto({ menuItemId: item4.id, imageUrl: "https://images.unsplash.com/photo-1574894709920-11b28e7367e3?w=800&h=600&fit=crop", isCover: 1 });
 
     const item5 = await this.createMenuItem({
       chefId: chef2.id,
@@ -1117,9 +1078,7 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item5.id, servingSize: 2, label: "2 servings", price: 32.99, isDefault: 0 });
     await this.addItemAllergens(item5.id, [findAllergen("Milk"), findAllergen("Eggs"), findAllergen("Wheat")]);
     await this.addItemIngredients(item5.id, [findIngredient("Pasta"), findIngredient("Butter"), findIngredient("Cream"), findIngredient("Cheese")]);
-    await this.createItemPhoto({ menuItemId: item5.id, imageUrl: "/images/dishes/fettuccine-alfredo.jpg", isCover: 1 });
-    await this.assignItemToDaySlot(daySlot2_1.id, item5.id);
-    await this.assignItemToDaySlot(daySlot2_3.id, item5.id);
+    await this.createItemPhoto({ menuItemId: item5.id, imageUrl: "https://images.unsplash.com/photo-1645112411341-6c4fd023714a?w=800&h=600&fit=crop", isCover: 1 });
 
     const item6 = await this.createMenuItem({
       chefId: chef2.id,
@@ -1130,9 +1089,7 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item6.id, servingSize: 4, label: "Family size (4 servings)", price: 69.99, isDefault: 0 });
     await this.addItemAllergens(item6.id, [findAllergen("Milk"), findAllergen("Eggs"), findAllergen("Wheat")]);
     await this.addItemIngredients(item6.id, [findIngredient("Chicken"), findIngredient("Pasta"), findIngredient("Tomatoes"), findIngredient("Cheese")]);
-    await this.createItemPhoto({ menuItemId: item6.id, imageUrl: "/images/dishes/chicken-parmesan.jpg", isCover: 1 });
-    await this.assignItemToDaySlot(daySlot2_2.id, item6.id);
-    await this.assignItemToDaySlot(daySlot2_4.id, item6.id);
+    await this.createItemPhoto({ menuItemId: item6.id, imageUrl: "https://images.unsplash.com/photo-1632778149955-e80f8ceca2e8?w=800&h=600&fit=crop", isCover: 1 });
 
     const item7 = await this.createMenuItem({
       chefId: chef2.id,
@@ -1142,11 +1099,9 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item7.id, servingSize: 1, label: "1 slice", price: 9.99, isDefault: 1 });
     await this.createServingOption({ menuItemId: item7.id, servingSize: 6, label: "Whole cake (6-8 slices)", price: 49.99, isDefault: 0 });
     await this.addItemAllergens(item7.id, [findAllergen("Milk"), findAllergen("Eggs"), findAllergen("Wheat")]);
-    await this.createItemPhoto({ menuItemId: item7.id, imageUrl: "/images/dishes/tiramisu.jpg", isCover: 1 });
-    await this.assignItemToDaySlot(daySlot2_1.id, item7.id);
-    await this.assignItemToDaySlot(daySlot2_2.id, item7.id);
+    await this.createItemPhoto({ menuItemId: item7.id, imageUrl: "https://images.unsplash.com/photo-1571877227200-a0d98ea607e9?w=800&h=600&fit=crop", isCover: 1 });
 
-    // Chef 3's items
+    // ── Chef 3 (Mei Lin) items ──
     const item8 = await this.createMenuItem({
       chefId: chef3.id,
       title: "Teriyaki Salmon Bowl",
@@ -1155,12 +1110,7 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item8.id, servingSize: 1, label: "1 bowl", price: 21.99, isDefault: 1 });
     await this.addItemAllergens(item8.id, [findAllergen("Fish"), findAllergen("Soy"), findAllergen("Sesame")]);
     await this.addItemIngredients(item8.id, [findIngredient("Salmon"), findIngredient("Rice"), findIngredient("Carrots")]);
-    await this.createItemPhoto({ menuItemId: item8.id, imageUrl: "/images/dishes/teriyaki-salmon.jpg", isCover: 1 });
-    await this.assignItemToDaySlot(daySlot3_1.id, item8.id);
-    await this.assignItemToDaySlot(daySlot3_2.id, item8.id);
-    await this.assignItemToDaySlot(daySlot3_3.id, item8.id);
-    await this.assignItemToDaySlot(daySlot3_4.id, item8.id);
-    await this.assignItemToDaySlot(daySlot3_5.id, item8.id);
+    await this.createItemPhoto({ menuItemId: item8.id, imageUrl: "https://images.unsplash.com/photo-1580476262798-bddd9f4b7369?w=800&h=600&fit=crop", isCover: 1 });
 
     const item9 = await this.createMenuItem({
       chefId: chef3.id,
@@ -1171,10 +1121,7 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item9.id, servingSize: 2, label: "2 servings", price: 30.99, isDefault: 0 });
     await this.addItemAllergens(item9.id, [findAllergen("Shellfish"), findAllergen("Peanuts"), findAllergen("Soy"), findAllergen("Eggs")]);
     await this.addItemIngredients(item9.id, [findIngredient("Shrimp"), findIngredient("Tofu"), findIngredient("Rice")]);
-    await this.createItemPhoto({ menuItemId: item9.id, imageUrl: "/images/dishes/pad-thai.jpg", isCover: 1 });
-    await this.assignItemToDaySlot(daySlot3_1.id, item9.id);
-    await this.assignItemToDaySlot(daySlot3_3.id, item9.id);
-    await this.assignItemToDaySlot(daySlot3_5.id, item9.id);
+    await this.createItemPhoto({ menuItemId: item9.id, imageUrl: "https://images.unsplash.com/photo-1559314809-0d155014e29e?w=800&h=600&fit=crop", isCover: 1 });
 
     const item10 = await this.createMenuItem({
       chefId: chef3.id,
@@ -1185,9 +1132,7 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item10.id, servingSize: 4, label: "Family size (4 servings)", price: 59.99, isDefault: 0 });
     await this.addItemAllergens(item10.id, [findAllergen("Soy")]);
     await this.addItemIngredients(item10.id, [findIngredient("Chicken"), findIngredient("Coconut Milk"), findIngredient("Rice"), findIngredient("Broccoli")]);
-    await this.createItemPhoto({ menuItemId: item10.id, imageUrl: "/images/dishes/green-curry.jpg", isCover: 1 });
-    await this.assignItemToDaySlot(daySlot3_2.id, item10.id);
-    await this.assignItemToDaySlot(daySlot3_4.id, item10.id);
+    await this.createItemPhoto({ menuItemId: item10.id, imageUrl: "https://images.unsplash.com/photo-1455619452474-d2be8b1e70cd?w=800&h=600&fit=crop", isCover: 1 });
 
     const item11 = await this.createMenuItem({
       chefId: chef3.id,
@@ -1198,9 +1143,7 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item11.id, servingSize: 8, label: "8 pieces", price: 15.99, isDefault: 0 });
     await this.addItemAllergens(item11.id, [findAllergen("Wheat"), findAllergen("Soy")]);
     await this.addItemIngredients(item11.id, [findIngredient("Carrots")]);
-    await this.createItemPhoto({ menuItemId: item11.id, imageUrl: "/images/dishes/spring-rolls.jpg", isCover: 1 });
-    await this.assignItemToDaySlot(daySlot3_3.id, item11.id);
-    await this.assignItemToDaySlot(daySlot3_5.id, item11.id);
+    await this.createItemPhoto({ menuItemId: item11.id, imageUrl: "https://images.unsplash.com/photo-1563245372-f21724e3856d?w=800&h=600&fit=crop", isCover: 1 });
 
     const item12 = await this.createMenuItem({
       chefId: chef3.id,
@@ -1210,11 +1153,9 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item12.id, servingSize: 1, label: "1 bowl", price: 15.99, isDefault: 1 });
     await this.addItemAllergens(item12.id, [findAllergen("Soy")]);
     await this.addItemIngredients(item12.id, [findIngredient("Tofu"), findIngredient("Quinoa"), findIngredient("Broccoli"), findIngredient("Carrots")]);
-    await this.createItemPhoto({ menuItemId: item12.id, imageUrl: "/images/dishes/miso-tofu.jpg", isCover: 1 });
-    await this.assignItemToDaySlot(daySlot3_1.id, item12.id);
-    await this.assignItemToDaySlot(daySlot3_4.id, item12.id);
+    await this.createItemPhoto({ menuItemId: item12.id, imageUrl: "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=800&h=600&fit=crop", isCover: 1 });
 
-    // Chef 4 (Luna) items - Vegan
+    // ── Chef 4 (Luna) items — Vegan ──
     const item13 = await this.createMenuItem({
       chefId: chef4.id,
       title: "Quinoa Buddha Bowl",
@@ -1223,9 +1164,7 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item13.id, servingSize: 1, label: "1 bowl", price: 15.99, isDefault: 1 });
     await this.addItemAllergens(item13.id, [findAllergen("Sesame")]);
     await this.addItemIngredients(item13.id, [findIngredient("Quinoa"), findIngredient("Kale"), findIngredient("Olive Oil")]);
-    await this.assignItemToDaySlot(daySlot4_1.id, item13.id);
-    await this.assignItemToDaySlot(daySlot4_2.id, item13.id);
-    await this.assignItemToDaySlot(daySlot4_3.id, item13.id);
+    await this.createItemPhoto({ menuItemId: item13.id, imageUrl: "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=800&h=600&fit=crop", isCover: 1 });
 
     const item14 = await this.createMenuItem({
       chefId: chef4.id,
@@ -1236,11 +1175,38 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item14.id, servingSize: 2, label: "6 tacos", price: 26.99, isDefault: 0 });
     await this.addItemAllergens(item14.id, [findAllergen("Tree Nuts")]);
     await this.addItemIngredients(item14.id, [findIngredient("Onions"), findIngredient("Cilantro"), findIngredient("Cashews")]);
-    await this.assignItemToDaySlot(daySlot4_1.id, item14.id);
-    await this.assignItemToDaySlot(daySlot4_2.id, item14.id);
-    await this.assignItemToDaySlot(daySlot4_3.id, item14.id);
+    await this.createItemPhoto({ menuItemId: item14.id, imageUrl: "https://images.unsplash.com/photo-1552332386-f8dd00dc2f85?w=800&h=600&fit=crop", isCover: 1 });
 
-    // Chef 5 (Kenji) items - Japanese
+    const item_luna3 = await this.createMenuItem({
+      chefId: chef4.id,
+      title: "Mushroom Lentil Bolognese",
+      description: "Hearty lentil and mushroom ragu over fresh pappardelle. Rich, savory, 100% plant-based.",
+    });
+    await this.createServingOption({ menuItemId: item_luna3.id, servingSize: 1, label: "1 serving", price: 16.99, isDefault: 1 });
+    await this.addItemAllergens(item_luna3.id, [findAllergen("Wheat")]);
+    await this.addItemIngredients(item_luna3.id, [findIngredient("Mushrooms"), findIngredient("Tomatoes"), findIngredient("Pasta"), findIngredient("Garlic")]);
+    await this.createItemPhoto({ menuItemId: item_luna3.id, imageUrl: "https://images.unsplash.com/photo-1621996346565-e3dbc646d9a9?w=800&h=600&fit=crop", isCover: 1 });
+
+    const item_luna4 = await this.createMenuItem({
+      chefId: chef4.id,
+      title: "Roasted Cauliflower Steak",
+      description: "Thick-cut cauliflower steak with chimichurri, roasted chickpeas, and quinoa pilaf.",
+    });
+    await this.createServingOption({ menuItemId: item_luna4.id, servingSize: 1, label: "1 plate", price: 17.99, isDefault: 1 });
+    await this.addItemIngredients(item_luna4.id, [findIngredient("Quinoa"), findIngredient("Olive Oil"), findIngredient("Garlic"), findIngredient("Parsley")]);
+    await this.createItemPhoto({ menuItemId: item_luna4.id, imageUrl: "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=800&h=600&fit=crop", isCover: 1 });
+
+    const item_luna5 = await this.createMenuItem({
+      chefId: chef4.id,
+      title: "Vegan Chocolate Mousse",
+      description: "Silky avocado-based chocolate mousse with coconut cream and fresh raspberries.",
+    });
+    await this.createServingOption({ menuItemId: item_luna5.id, servingSize: 1, label: "1 cup", price: 8.99, isDefault: 1 });
+    await this.createServingOption({ menuItemId: item_luna5.id, servingSize: 4, label: "4 cups", price: 29.99, isDefault: 0 });
+    await this.addItemIngredients(item_luna5.id, [findIngredient("Coconut Milk"), findIngredient("Coconut")]);
+    await this.createItemPhoto({ menuItemId: item_luna5.id, imageUrl: "https://images.unsplash.com/photo-1541783245831-57d6fb0926d3?w=800&h=600&fit=crop", isCover: 1 });
+
+    // ── Chef 5 (Kenji) items — Japanese ──
     const item15 = await this.createMenuItem({
       chefId: chef5.id,
       title: "Tonkotsu Ramen",
@@ -1249,9 +1215,7 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item15.id, servingSize: 1, label: "1 bowl", price: 18.99, isDefault: 1 });
     await this.addItemAllergens(item15.id, [findAllergen("Wheat"), findAllergen("Eggs"), findAllergen("Soy")]);
     await this.addItemIngredients(item15.id, [findIngredient("Pork"), findIngredient("Eggs"), findIngredient("Noodles"), findIngredient("Soy Sauce")]);
-    await this.assignItemToDaySlot(daySlot5_1.id, item15.id);
-    await this.assignItemToDaySlot(daySlot5_2.id, item15.id);
-    await this.assignItemToDaySlot(daySlot5_3.id, item15.id);
+    await this.createItemPhoto({ menuItemId: item15.id, imageUrl: "https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=800&h=600&fit=crop", isCover: 1 });
 
     const item16 = await this.createMenuItem({
       chefId: chef5.id,
@@ -1261,11 +1225,30 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item16.id, servingSize: 1, label: "1 bowl", price: 22.99, isDefault: 1 });
     await this.addItemAllergens(item16.id, [findAllergen("Fish"), findAllergen("Soy"), findAllergen("Sesame")]);
     await this.addItemIngredients(item16.id, [findIngredient("Salmon"), findIngredient("Tuna"), findIngredient("Rice"), findIngredient("Soy Sauce")]);
-    await this.assignItemToDaySlot(daySlot5_1.id, item16.id);
-    await this.assignItemToDaySlot(daySlot5_2.id, item16.id);
-    await this.assignItemToDaySlot(daySlot5_3.id, item16.id);
+    await this.createItemPhoto({ menuItemId: item16.id, imageUrl: "https://images.unsplash.com/photo-1579871494447-9811cf80d66c?w=800&h=600&fit=crop", isCover: 1 });
 
-    // Chef 6 (Sophie) items - Baked Goods
+    const item_kenji3 = await this.createMenuItem({
+      chefId: chef5.id,
+      title: "Chicken Katsu Curry",
+      description: "Crispy panko-crusted chicken cutlet with rich Japanese curry sauce, steamed rice, and pickled vegetables.",
+    });
+    await this.createServingOption({ menuItemId: item_kenji3.id, servingSize: 1, label: "1 plate", price: 19.99, isDefault: 1 });
+    await this.addItemAllergens(item_kenji3.id, [findAllergen("Wheat"), findAllergen("Eggs")]);
+    await this.addItemIngredients(item_kenji3.id, [findIngredient("Chicken"), findIngredient("Breadcrumbs"), findIngredient("Rice"), findIngredient("Carrots")]);
+    await this.createItemPhoto({ menuItemId: item_kenji3.id, imageUrl: "https://images.unsplash.com/photo-1604908176997-125f25cc6f3d?w=800&h=600&fit=crop", isCover: 1 });
+
+    const item_kenji4 = await this.createMenuItem({
+      chefId: chef5.id,
+      title: "Gyoza Platter",
+      description: "Pan-fried pork and vegetable dumplings with dipping sauce. Hand-folded to order.",
+    });
+    await this.createServingOption({ menuItemId: item_kenji4.id, servingSize: 8, label: "8 pieces", price: 12.99, isDefault: 1 });
+    await this.createServingOption({ menuItemId: item_kenji4.id, servingSize: 16, label: "16 pieces", price: 22.99, isDefault: 0 });
+    await this.addItemAllergens(item_kenji4.id, [findAllergen("Wheat"), findAllergen("Soy"), findAllergen("Sesame")]);
+    await this.addItemIngredients(item_kenji4.id, [findIngredient("Pork"), findIngredient("Cabbage"), findIngredient("Ginger"), findIngredient("Soy Sauce")]);
+    await this.createItemPhoto({ menuItemId: item_kenji4.id, imageUrl: "https://images.unsplash.com/photo-1496116218417-1a781b1c416c?w=800&h=600&fit=crop", isCover: 1 });
+
+    // ── Chef 6 (Sophie) items — Baked Goods ──
     const item17 = await this.createMenuItem({
       chefId: chef6.id,
       title: "Butter Croissant Box",
@@ -1275,9 +1258,7 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item17.id, servingSize: 8, label: "Box of 8", price: 22.99, isDefault: 0 });
     await this.addItemAllergens(item17.id, [findAllergen("Wheat"), findAllergen("Milk"), findAllergen("Eggs")]);
     await this.addItemIngredients(item17.id, [findIngredient("Butter"), findIngredient("Flour"), findIngredient("Eggs")]);
-    await this.assignItemToDaySlot(daySlot6_1.id, item17.id);
-    await this.assignItemToDaySlot(daySlot6_2.id, item17.id);
-    await this.assignItemToDaySlot(daySlot6_3.id, item17.id);
+    await this.createItemPhoto({ menuItemId: item17.id, imageUrl: "https://images.unsplash.com/photo-1509440159596-0249088772ff?w=800&h=600&fit=crop", isCover: 1 });
 
     const item18 = await this.createMenuItem({
       chefId: chef6.id,
@@ -1288,11 +1269,41 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item18.id, servingSize: 8, label: "Whole tart (8 slices)", price: 44.99, isDefault: 0 });
     await this.addItemAllergens(item18.id, [findAllergen("Wheat"), findAllergen("Milk"), findAllergen("Eggs")]);
     await this.addItemIngredients(item18.id, [findIngredient("Butter"), findIngredient("Flour"), findIngredient("Cream"), findIngredient("Eggs")]);
-    await this.assignItemToDaySlot(daySlot6_1.id, item18.id);
-    await this.assignItemToDaySlot(daySlot6_2.id, item18.id);
-    await this.assignItemToDaySlot(daySlot6_3.id, item18.id);
+    await this.createItemPhoto({ menuItemId: item18.id, imageUrl: "https://images.unsplash.com/photo-1488477181946-6428a0291777?w=800&h=600&fit=crop", isCover: 1 });
 
-    // Chef 7 (Marcus) items - BBQ
+    const item_sophie3 = await this.createMenuItem({
+      chefId: chef6.id,
+      title: "Chocolate Eclair Box",
+      description: "Choux pastry filled with vanilla custard and topped with rich chocolate ganache. A Parisian classic.",
+    });
+    await this.createServingOption({ menuItemId: item_sophie3.id, servingSize: 4, label: "Box of 4", price: 16.99, isDefault: 1 });
+    await this.addItemAllergens(item_sophie3.id, [findAllergen("Wheat"), findAllergen("Milk"), findAllergen("Eggs")]);
+    await this.addItemIngredients(item_sophie3.id, [findIngredient("Butter"), findIngredient("Flour"), findIngredient("Eggs"), findIngredient("Cream")]);
+    await this.createItemPhoto({ menuItemId: item_sophie3.id, imageUrl: "https://images.unsplash.com/photo-1525059696034-4967a8e1dca2?w=800&h=600&fit=crop", isCover: 1 });
+
+    const item_sophie4 = await this.createMenuItem({
+      chefId: chef6.id,
+      title: "Quiche Lorraine",
+      description: "Savory French tart with bacon, Gruyere cheese, and a silky egg custard in buttery pastry.",
+    });
+    await this.createServingOption({ menuItemId: item_sophie4.id, servingSize: 1, label: "1 slice", price: 10.99, isDefault: 1 });
+    await this.createServingOption({ menuItemId: item_sophie4.id, servingSize: 8, label: "Whole quiche (8 slices)", price: 39.99, isDefault: 0 });
+    await this.addItemAllergens(item_sophie4.id, [findAllergen("Wheat"), findAllergen("Milk"), findAllergen("Eggs")]);
+    await this.addItemIngredients(item_sophie4.id, [findIngredient("Butter"), findIngredient("Flour"), findIngredient("Eggs"), findIngredient("Cheese"), findIngredient("Cream")]);
+    await this.createItemPhoto({ menuItemId: item_sophie4.id, imageUrl: "https://images.unsplash.com/photo-1527515637462-cff94eecc1ac?w=800&h=600&fit=crop", isCover: 1 });
+
+    const item_sophie5 = await this.createMenuItem({
+      chefId: chef6.id,
+      title: "Lemon Madeleines",
+      description: "Delicate shell-shaped cakes with fresh lemon zest and a light dusting of powdered sugar.",
+    });
+    await this.createServingOption({ menuItemId: item_sophie5.id, servingSize: 6, label: "Box of 6", price: 9.99, isDefault: 1 });
+    await this.createServingOption({ menuItemId: item_sophie5.id, servingSize: 12, label: "Box of 12", price: 17.99, isDefault: 0 });
+    await this.addItemAllergens(item_sophie5.id, [findAllergen("Wheat"), findAllergen("Milk"), findAllergen("Eggs")]);
+    await this.addItemIngredients(item_sophie5.id, [findIngredient("Butter"), findIngredient("Flour"), findIngredient("Eggs")]);
+    await this.createItemPhoto({ menuItemId: item_sophie5.id, imageUrl: "https://images.unsplash.com/photo-1571115177098-24ec42ed204d?w=800&h=600&fit=crop", isCover: 1 });
+
+    // ── Chef 7 (Marcus) items — BBQ ──
     const item19 = await this.createMenuItem({
       chefId: chef7.id,
       title: "Smoked Brisket Plate",
@@ -1301,9 +1312,7 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item19.id, servingSize: 1, label: "1 plate", price: 22.99, isDefault: 1 });
     await this.createServingOption({ menuItemId: item19.id, servingSize: 4, label: "Family platter (4 servings)", price: 79.99, isDefault: 0 });
     await this.addItemIngredients(item19.id, [findIngredient("Beef"), findIngredient("Corn")]);
-    await this.assignItemToDaySlot(daySlot7_1.id, item19.id);
-    await this.assignItemToDaySlot(daySlot7_2.id, item19.id);
-    await this.assignItemToDaySlot(daySlot7_3.id, item19.id);
+    await this.createItemPhoto({ menuItemId: item19.id, imageUrl: "https://images.unsplash.com/photo-1529193591184-b1d58069ecdd?w=800&h=600&fit=crop", isCover: 1 });
 
     const item20 = await this.createMenuItem({
       chefId: chef7.id,
@@ -1314,11 +1323,30 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item20.id, servingSize: 2, label: "2 sandwiches", price: 26.99, isDefault: 0 });
     await this.addItemAllergens(item20.id, [findAllergen("Wheat")]);
     await this.addItemIngredients(item20.id, [findIngredient("Pork"), findIngredient("Bread")]);
-    await this.assignItemToDaySlot(daySlot7_1.id, item20.id);
-    await this.assignItemToDaySlot(daySlot7_2.id, item20.id);
-    await this.assignItemToDaySlot(daySlot7_3.id, item20.id);
+    await this.createItemPhoto({ menuItemId: item20.id, imageUrl: "https://images.unsplash.com/photo-1550547660-d9450f859349?w=800&h=600&fit=crop", isCover: 1 });
 
-    // Chef 8 (Denise) items - Soul Food
+    const item_marcus3 = await this.createMenuItem({
+      chefId: chef7.id,
+      title: "Smoked Chicken Wings",
+      description: "Dry-rubbed and smoked wings with Alabama white sauce. Crispy skin, juicy inside.",
+    });
+    await this.createServingOption({ menuItemId: item_marcus3.id, servingSize: 1, label: "10 wings", price: 15.99, isDefault: 1 });
+    await this.createServingOption({ menuItemId: item_marcus3.id, servingSize: 2, label: "20 wings", price: 28.99, isDefault: 0 });
+    await this.addItemAllergens(item_marcus3.id, [findAllergen("Milk")]);
+    await this.addItemIngredients(item_marcus3.id, [findIngredient("Chicken"), findIngredient("Paprika")]);
+    await this.createItemPhoto({ menuItemId: item_marcus3.id, imageUrl: "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800&h=600&fit=crop", isCover: 1 });
+
+    const item_marcus4 = await this.createMenuItem({
+      chefId: chef7.id,
+      title: "BBQ Ribs Half Rack",
+      description: "St. Louis-style pork ribs with Memphis dry rub and house-made BBQ sauce. Fall-off-the-bone tender.",
+    });
+    await this.createServingOption({ menuItemId: item_marcus4.id, servingSize: 1, label: "Half rack", price: 24.99, isDefault: 1 });
+    await this.createServingOption({ menuItemId: item_marcus4.id, servingSize: 2, label: "Full rack", price: 44.99, isDefault: 0 });
+    await this.addItemIngredients(item_marcus4.id, [findIngredient("Pork"), findIngredient("Paprika"), findIngredient("Garlic")]);
+    await this.createItemPhoto({ menuItemId: item_marcus4.id, imageUrl: "https://images.unsplash.com/photo-1544025162-d76694265947?w=800&h=600&fit=crop", isCover: 1 });
+
+    // ── Chef 8 (Denise) items — Soul Food ──
     const item21 = await this.createMenuItem({
       chefId: chef8.id,
       title: "Southern Fried Chicken",
@@ -1328,9 +1356,7 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item21.id, servingSize: 2, label: "4 piece dinner", price: 32.99, isDefault: 0 });
     await this.addItemAllergens(item21.id, [findAllergen("Milk"), findAllergen("Wheat"), findAllergen("Eggs")]);
     await this.addItemIngredients(item21.id, [findIngredient("Chicken"), findIngredient("Butter"), findIngredient("Flour")]);
-    await this.assignItemToDaySlot(daySlot8_1.id, item21.id);
-    await this.assignItemToDaySlot(daySlot8_2.id, item21.id);
-    await this.assignItemToDaySlot(daySlot8_3.id, item21.id);
+    await this.createItemPhoto({ menuItemId: item21.id, imageUrl: "https://images.unsplash.com/photo-1626645738196-c2a7c87a8f58?w=800&h=600&fit=crop", isCover: 1 });
 
     const item22 = await this.createMenuItem({
       chefId: chef8.id,
@@ -1341,11 +1367,28 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item22.id, servingSize: 4, label: "Family size", price: 22.99, isDefault: 0 });
     await this.addItemAllergens(item22.id, [findAllergen("Milk"), findAllergen("Wheat")]);
     await this.addItemIngredients(item22.id, [findIngredient("Pasta"), findIngredient("Cheese"), findIngredient("Butter"), findIngredient("Cream")]);
-    await this.assignItemToDaySlot(daySlot8_1.id, item22.id);
-    await this.assignItemToDaySlot(daySlot8_2.id, item22.id);
-    await this.assignItemToDaySlot(daySlot8_3.id, item22.id);
+    await this.createItemPhoto({ menuItemId: item22.id, imageUrl: "https://images.unsplash.com/photo-1543339494-b4cd4f7ba686?w=800&h=600&fit=crop", isCover: 1 });
 
-    // Chef 9 (Nadine) items - Caribbean
+    const item_denise3 = await this.createMenuItem({
+      chefId: chef8.id,
+      title: "Collard Greens & Cornbread",
+      description: "Slow-cooked collard greens with smoked turkey and a side of sweet honey cornbread.",
+    });
+    await this.createServingOption({ menuItemId: item_denise3.id, servingSize: 1, label: "1 serving", price: 10.99, isDefault: 1 });
+    await this.addItemIngredients(item_denise3.id, [findIngredient("Turkey"), findIngredient("Corn"), findIngredient("Butter")]);
+    await this.createItemPhoto({ menuItemId: item_denise3.id, imageUrl: "https://images.unsplash.com/photo-1536304929831-ee1ca9d44906?w=800&h=600&fit=crop", isCover: 1 });
+
+    const item_denise4 = await this.createMenuItem({
+      chefId: chef8.id,
+      title: "Shrimp & Grits",
+      description: "Creamy stone-ground grits topped with sauteed shrimp, andouille sausage, and Cajun gravy.",
+    });
+    await this.createServingOption({ menuItemId: item_denise4.id, servingSize: 1, label: "1 bowl", price: 19.99, isDefault: 1 });
+    await this.addItemAllergens(item_denise4.id, [findAllergen("Shellfish"), findAllergen("Milk")]);
+    await this.addItemIngredients(item_denise4.id, [findIngredient("Shrimp"), findIngredient("Butter"), findIngredient("Cream"), findIngredient("Corn")]);
+    await this.createItemPhoto({ menuItemId: item_denise4.id, imageUrl: "https://images.unsplash.com/photo-1504544750208-dc0358e63f7f?w=800&h=600&fit=crop", isCover: 1 });
+
+    // ── Chef 9 (Nadine) items — Caribbean ──
     const item23 = await this.createMenuItem({
       chefId: chef9.id,
       title: "Jerk Chicken Plate",
@@ -1354,9 +1397,7 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item23.id, servingSize: 1, label: "1 plate", price: 17.99, isDefault: 1 });
     await this.createServingOption({ menuItemId: item23.id, servingSize: 2, label: "2 plates", price: 32.99, isDefault: 0 });
     await this.addItemIngredients(item23.id, [findIngredient("Chicken"), findIngredient("Rice"), findIngredient("Garlic"), findIngredient("Thyme")]);
-    await this.assignItemToDaySlot(daySlot9_1.id, item23.id);
-    await this.assignItemToDaySlot(daySlot9_2.id, item23.id);
-    await this.assignItemToDaySlot(daySlot9_3.id, item23.id);
+    await this.createItemPhoto({ menuItemId: item23.id, imageUrl: "https://images.unsplash.com/photo-1532550907401-a500c9a57435?w=800&h=600&fit=crop", isCover: 1 });
 
     const item24 = await this.createMenuItem({
       chefId: chef9.id,
@@ -1365,11 +1406,27 @@ export class DatabaseStorage implements IStorage {
     });
     await this.createServingOption({ menuItemId: item24.id, servingSize: 1, label: "1 serving", price: 24.99, isDefault: 1 });
     await this.addItemIngredients(item24.id, [findIngredient("Beef"), findIngredient("Garlic"), findIngredient("Onions"), findIngredient("Rice"), findIngredient("Thyme")]);
-    await this.assignItemToDaySlot(daySlot9_1.id, item24.id);
-    await this.assignItemToDaySlot(daySlot9_2.id, item24.id);
-    await this.assignItemToDaySlot(daySlot9_3.id, item24.id);
+    await this.createItemPhoto({ menuItemId: item24.id, imageUrl: "https://images.unsplash.com/photo-1547592180-85f173990554?w=800&h=600&fit=crop", isCover: 1 });
 
-    // Chef 10 (Bobby) items - Comfort Food
+    const item_nadine3 = await this.createMenuItem({
+      chefId: chef9.id,
+      title: "Curry Goat",
+      description: "Tender goat slow-cooked in Caribbean curry with potatoes and scotch bonnet peppers. Served with rice and peas.",
+    });
+    await this.createServingOption({ menuItemId: item_nadine3.id, servingSize: 1, label: "1 plate", price: 21.99, isDefault: 1 });
+    await this.addItemIngredients(item_nadine3.id, [findIngredient("Lamb"), findIngredient("Potatoes"), findIngredient("Rice"), findIngredient("Onions"), findIngredient("Garlic")]);
+    await this.createItemPhoto({ menuItemId: item_nadine3.id, imageUrl: "https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=800&h=600&fit=crop", isCover: 1 });
+
+    const item_nadine4 = await this.createMenuItem({
+      chefId: chef9.id,
+      title: "Fried Plantains & Black Bean Bowl",
+      description: "Sweet fried plantains with seasoned black beans, avocado, pickled slaw, and scotch bonnet sauce.",
+    });
+    await this.createServingOption({ menuItemId: item_nadine4.id, servingSize: 1, label: "1 bowl", price: 13.99, isDefault: 1 });
+    await this.addItemIngredients(item_nadine4.id, [findIngredient("Onions"), findIngredient("Garlic"), findIngredient("Rice")]);
+    await this.createItemPhoto({ menuItemId: item_nadine4.id, imageUrl: "https://images.unsplash.com/photo-1512058564366-18510be2db19?w=800&h=600&fit=crop", isCover: 1 });
+
+    // ── Chef 10 (Bobby) items — Comfort Food ──
     const item25 = await this.createMenuItem({
       chefId: chef10.id,
       title: "Classic Cheeseburger",
@@ -1379,9 +1436,7 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item25.id, servingSize: 2, label: "2 burgers", price: 24.99, isDefault: 0 });
     await this.addItemAllergens(item25.id, [findAllergen("Milk"), findAllergen("Wheat")]);
     await this.addItemIngredients(item25.id, [findIngredient("Beef"), findIngredient("Cheese"), findIngredient("Bread"), findIngredient("Lettuce"), findIngredient("Tomatoes")]);
-    await this.assignItemToDaySlot(daySlot10_1.id, item25.id);
-    await this.assignItemToDaySlot(daySlot10_2.id, item25.id);
-    await this.assignItemToDaySlot(daySlot10_3.id, item25.id);
+    await this.createItemPhoto({ menuItemId: item25.id, imageUrl: "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=800&h=600&fit=crop", isCover: 1 });
 
     const item26 = await this.createMenuItem({
       chefId: chef10.id,
@@ -1392,11 +1447,30 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item26.id, servingSize: 4, label: "Family pie (4 servings)", price: 49.99, isDefault: 0 });
     await this.addItemAllergens(item26.id, [findAllergen("Milk"), findAllergen("Wheat"), findAllergen("Eggs")]);
     await this.addItemIngredients(item26.id, [findIngredient("Chicken"), findIngredient("Butter"), findIngredient("Flour"), findIngredient("Peas"), findIngredient("Carrots"), findIngredient("Cream")]);
-    await this.assignItemToDaySlot(daySlot10_1.id, item26.id);
-    await this.assignItemToDaySlot(daySlot10_2.id, item26.id);
-    await this.assignItemToDaySlot(daySlot10_3.id, item26.id);
+    await this.createItemPhoto({ menuItemId: item26.id, imageUrl: "https://images.unsplash.com/photo-1621996346565-e3dbc646d9a9?w=800&h=600&fit=crop", isCover: 1 });
 
-    // Chef 11 (Priya) items - Indian
+    const item_bobby3 = await this.createMenuItem({
+      chefId: chef10.id,
+      title: "Loaded Fries",
+      description: "Crispy fries topped with cheddar cheese sauce, bacon bits, sour cream, and chives.",
+    });
+    await this.createServingOption({ menuItemId: item_bobby3.id, servingSize: 1, label: "Regular", price: 10.99, isDefault: 1 });
+    await this.createServingOption({ menuItemId: item_bobby3.id, servingSize: 2, label: "Large", price: 16.99, isDefault: 0 });
+    await this.addItemAllergens(item_bobby3.id, [findAllergen("Milk")]);
+    await this.addItemIngredients(item_bobby3.id, [findIngredient("Potatoes"), findIngredient("Cheese"), findIngredient("Sour Cream")]);
+    await this.createItemPhoto({ menuItemId: item_bobby3.id, imageUrl: "https://images.unsplash.com/photo-1573080496219-bb080dd4f877?w=800&h=600&fit=crop", isCover: 1 });
+
+    const item_bobby4 = await this.createMenuItem({
+      chefId: chef10.id,
+      title: "Philly Cheesesteak",
+      description: "Thinly sliced ribeye with melted provolone, sauteed onions and peppers on a hoagie roll.",
+    });
+    await this.createServingOption({ menuItemId: item_bobby4.id, servingSize: 1, label: "1 sandwich", price: 15.99, isDefault: 1 });
+    await this.addItemAllergens(item_bobby4.id, [findAllergen("Milk"), findAllergen("Wheat")]);
+    await this.addItemIngredients(item_bobby4.id, [findIngredient("Beef"), findIngredient("Cheese"), findIngredient("Onions"), findIngredient("Bell Peppers"), findIngredient("Bread")]);
+    await this.createItemPhoto({ menuItemId: item_bobby4.id, imageUrl: "https://images.unsplash.com/photo-1529006557810-274b9b2fc783?w=800&h=600&fit=crop", isCover: 1 });
+
+    // ── Chef 11 (Priya) items — Indian ──
     const item27 = await this.createMenuItem({
       chefId: chef11.id,
       title: "Butter Chicken",
@@ -1406,9 +1480,7 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item27.id, servingSize: 4, label: "Family size (4 servings)", price: 59.99, isDefault: 0 });
     await this.addItemAllergens(item27.id, [findAllergen("Milk"), findAllergen("Wheat")]);
     await this.addItemIngredients(item27.id, [findIngredient("Chicken"), findIngredient("Butter"), findIngredient("Cream"), findIngredient("Tomatoes"), findIngredient("Rice"), findIngredient("Garlic"), findIngredient("Ginger")]);
-    await this.assignItemToDaySlot(daySlot11_1.id, item27.id);
-    await this.assignItemToDaySlot(daySlot11_2.id, item27.id);
-    await this.assignItemToDaySlot(daySlot11_3.id, item27.id);
+    await this.createItemPhoto({ menuItemId: item27.id, imageUrl: "https://images.unsplash.com/photo-1603894584373-5ac82b2ae398?w=800&h=600&fit=crop", isCover: 1 });
 
     const item28 = await this.createMenuItem({
       chefId: chef11.id,
@@ -1419,9 +1491,70 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item28.id, servingSize: 12, label: "12 pieces (party size)", price: 18.99, isDefault: 0 });
     await this.addItemAllergens(item28.id, [findAllergen("Wheat")]);
     await this.addItemIngredients(item28.id, [findIngredient("Potatoes"), findIngredient("Peas"), findIngredient("Flour"), findIngredient("Cumin"), findIngredient("Turmeric")]);
-    await this.assignItemToDaySlot(daySlot11_1.id, item28.id);
-    await this.assignItemToDaySlot(daySlot11_2.id, item28.id);
-    await this.assignItemToDaySlot(daySlot11_3.id, item28.id);
+    await this.createItemPhoto({ menuItemId: item28.id, imageUrl: "https://images.unsplash.com/photo-1601050690597-df0568f70950?w=800&h=600&fit=crop", isCover: 1 });
+
+    const item_priya3 = await this.createMenuItem({
+      chefId: chef11.id,
+      title: "Paneer Tikka Masala",
+      description: "Marinated paneer cubes in a smoky, creamy tomato gravy. Served with basmati rice and garlic naan.",
+    });
+    await this.createServingOption({ menuItemId: item_priya3.id, servingSize: 1, label: "1 serving with rice & naan", price: 16.99, isDefault: 1 });
+    await this.addItemAllergens(item_priya3.id, [findAllergen("Milk"), findAllergen("Wheat")]);
+    await this.addItemIngredients(item_priya3.id, [findIngredient("Cheese"), findIngredient("Cream"), findIngredient("Tomatoes"), findIngredient("Rice"), findIngredient("Ginger"), findIngredient("Garlic")]);
+    await this.createItemPhoto({ menuItemId: item_priya3.id, imageUrl: "https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=800&h=600&fit=crop", isCover: 1 });
+
+    const item_priya4 = await this.createMenuItem({
+      chefId: chef11.id,
+      title: "Lamb Biryani",
+      description: "Fragrant basmati rice layered with spiced lamb, saffron, and fried onions. Sealed and slow-cooked in a clay pot.",
+    });
+    await this.createServingOption({ menuItemId: item_priya4.id, servingSize: 1, label: "1 serving", price: 21.99, isDefault: 1 });
+    await this.createServingOption({ menuItemId: item_priya4.id, servingSize: 4, label: "Family size (4 servings)", price: 69.99, isDefault: 0 });
+    await this.addItemAllergens(item_priya4.id, [findAllergen("Milk")]);
+    await this.addItemIngredients(item_priya4.id, [findIngredient("Lamb"), findIngredient("Rice"), findIngredient("Onions"), findIngredient("Yogurt"), findIngredient("Ginger"), findIngredient("Garlic")]);
+    await this.createItemPhoto({ menuItemId: item_priya4.id, imageUrl: "https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=800&h=600&fit=crop", isCover: 1 });
+
+    const item_priya5 = await this.createMenuItem({
+      chefId: chef11.id,
+      title: "Masala Dosa",
+      description: "Crispy fermented rice and lentil crepe filled with spiced potato masala. Served with coconut chutney and sambar.",
+    });
+    await this.createServingOption({ menuItemId: item_priya5.id, servingSize: 1, label: "1 dosa", price: 12.99, isDefault: 1 });
+    await this.createServingOption({ menuItemId: item_priya5.id, servingSize: 2, label: "2 dosas", price: 22.99, isDefault: 0 });
+    await this.addItemIngredients(item_priya5.id, [findIngredient("Rice"), findIngredient("Potatoes"), findIngredient("Onions"), findIngredient("Coconut"), findIngredient("Turmeric")]);
+    await this.createItemPhoto({ menuItemId: item_priya5.id, imageUrl: "https://images.unsplash.com/photo-1630383249896-424e482df921?w=800&h=600&fit=crop", isCover: 1 });
+
+    // ── Programmatic day slot generation (~100 days) ──
+    const chefSlotConfigs = [
+      { chef: chef1, items: [item1, item2, item3], interval: 3, offset: 1 },
+      { chef: chef2, items: [item4, item5, item6, item7], interval: 3, offset: 2 },
+      { chef: chef3, items: [item8, item9, item10, item11, item12], interval: 2, offset: 1 },
+      { chef: chef4, items: [item13, item14, item_luna3, item_luna4, item_luna5], interval: 3, offset: 2 },
+      { chef: chef5, items: [item15, item16, item_kenji3, item_kenji4], interval: 3, offset: 1 },
+      { chef: chef6, items: [item17, item18, item_sophie3, item_sophie4, item_sophie5], interval: 3, offset: 3 },
+      { chef: chef7, items: [item19, item20, item_marcus3, item_marcus4], interval: 3, offset: 2 },
+      { chef: chef8, items: [item21, item22, item_denise3, item_denise4], interval: 3, offset: 1 },
+      { chef: chef9, items: [item23, item24, item_nadine3, item_nadine4], interval: 3, offset: 3 },
+      { chef: chef10, items: [item25, item26, item_bobby3, item_bobby4], interval: 3, offset: 2 },
+      { chef: chef11, items: [item27, item28, item_priya3, item_priya4, item_priya5], interval: 3, offset: 1 },
+    ];
+
+    const MAX_DAYS = 100;
+
+    for (const config of chefSlotConfigs) {
+      for (let day = config.offset; day <= MAX_DAYS; day += config.interval) {
+        const slot = await this.createDaySlot({
+          chefId: config.chef.id,
+          date: futureDate(day),
+          orderCutoffDate: futureDate(day - 1),
+        });
+        // Rotate items: not all items every day
+        const itemsForSlot = config.items.filter((_, i) => (day + i) % 2 === 0 || i === 0);
+        for (const item of itemsForSlot) {
+          await this.assignItemToDaySlot(slot.id, item.id);
+        }
+      }
+    }
 
     // Add comprehensive ingredient-allergen mappings for auto-selection
     // DAIRY/MILK allergens
@@ -1693,7 +1826,21 @@ export class DatabaseStorage implements IStorage {
       { orderId: order11.id, menuItemId: item10.id, quantity: 1, priceAtOrder: 59.99, itemTitle: "Thai Green Curry" },
     ]);
 
-    console.log("Database seeded successfully!");
+    // Verify seed data completeness
+    const [chefCount] = await db.select({ count: sql<number>`count(*)` }).from(chefProfiles);
+    const [itemCount] = await db.select({ count: sql<number>`count(*)` }).from(menuItems);
+    const [photoCount] = await db.select({ count: sql<number>`count(*)` }).from(itemPhotos);
+    const [slotCount] = await db.select({ count: sql<number>`count(*)` }).from(menuDaySlots);
+    const [assignmentCount] = await db.select({ count: sql<number>`count(*)` }).from(menuItemAssignments);
+    console.log(`Seed complete: ${chefCount.count} chefs, ${itemCount.count} items, ${photoCount.count} photos, ${slotCount.count} slots, ${assignmentCount.count} assignments`);
+
+    // Log a sample photo to verify URLs are stored
+    const samplePhotos = await db.select().from(itemPhotos).limit(2);
+    console.log("Sample photos:", samplePhotos.map(p => ({ id: p.id, menuItemId: p.menuItemId, isCover: p.isCover, url: p.imageUrl?.substring(0, 60) })));
+   } catch (error) {
+    console.error("SEED DATA FAILED:", error);
+    throw error;
+   }
   }
 }
 

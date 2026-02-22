@@ -6,19 +6,22 @@ export interface CartItem {
   menuItem: MenuItemWithDetails;
   servingOption: ServingOption;
   quantity: number;
+  chefId: number;
+  chef: ChefProfile;
+  daySlotId: number;
+  daySlotDate: string; // ISO string for display
 }
 
 export interface CartState {
   items: CartItem[];
-  chefId: number | null;
-  chef: ChefProfile | null;
-  addItem: (item: MenuItemWithDetails, chef: ChefProfile, servingOption?: ServingOption) => boolean;
-  removeItem: (menuItemId: number) => void;
-  updateQuantity: (menuItemId: number, quantity: number) => void;
+  addItem: (item: MenuItemWithDetails, chef: ChefProfile, daySlotId: number, daySlotDate: string, servingOption?: ServingOption) => void;
+  removeItem: (menuItemId: number, daySlotId: number) => void;
+  updateQuantity: (menuItemId: number, daySlotId: number, quantity: number) => void;
   clearCart: () => void;
   getTotal: () => number;
   getItemCount: () => number;
-  wouldRequireClear: (chefId: number) => boolean;
+  getItemsByChef: () => Map<number, { chef: ChefProfile; items: CartItem[] }>;
+  getItemsByDay: () => Map<string, CartItem[]>;
 }
 
 function getDefaultServingOption(item: MenuItemWithDetails): ServingOption {
@@ -28,89 +31,130 @@ function getDefaultServingOption(item: MenuItemWithDetails): ServingOption {
   return { id: 0, menuItemId: item.id, servingSize: 1, label: "1 serving", price: 0, isDefault: 1 };
 }
 
+// Migrate old cart format (version 1) to new format (version 2)
+function migrateCart(persisted: any): any {
+  if (!persisted || !persisted.state) return persisted;
+  const state = persisted.state;
+
+  // Old format had chefId/chef at top level — migrate to per-item
+  if (state.chefId !== undefined || state.chef !== undefined) {
+    const oldChef = state.chef;
+    const oldChefId = state.chefId;
+    const newItems = (state.items || []).map((item: any) => ({
+      ...item,
+      chefId: item.chefId ?? oldChefId ?? 0,
+      chef: item.chef ?? oldChef ?? null,
+      daySlotId: item.daySlotId ?? 0,
+      daySlotDate: item.daySlotDate ?? "",
+    }));
+    return {
+      ...persisted,
+      version: 2,
+      state: { items: newItems },
+    };
+  }
+
+  return persisted;
+}
+
 export const useCartStore = create<CartState>()(
   persist(
     (set, get) => ({
       items: [],
-      chefId: null,
-      chef: null,
-      
-      addItem: (item: MenuItemWithDetails, chef: ChefProfile, servingOption?: ServingOption) => {
+
+      addItem: (item: MenuItemWithDetails, chef: ChefProfile, daySlotId: number, daySlotDate: string, servingOption?: ServingOption) => {
         const state = get();
-        
-        if (state.chefId && state.chefId !== chef.id) {
-          return false;
-        }
-        
         const option = servingOption || getDefaultServingOption(item);
-        const existingItem = state.items.find(i => i.menuItem.id === item.id);
-        
+        const existingItem = state.items.find(
+          i => i.menuItem.id === item.id && i.daySlotId === daySlotId
+        );
+
         if (existingItem) {
           set({
-            items: state.items.map(i => 
-              i.menuItem.id === item.id 
+            items: state.items.map(i =>
+              i.menuItem.id === item.id && i.daySlotId === daySlotId
                 ? { ...i, quantity: i.quantity + 1 }
                 : i
             ),
           });
         } else {
           set({
-            items: [...state.items, { menuItem: item, servingOption: option, quantity: 1 }],
-            chefId: chef.id,
-            chef: chef,
+            items: [
+              ...state.items,
+              { menuItem: item, servingOption: option, quantity: 1, chefId: chef.id, chef, daySlotId, daySlotDate },
+            ],
           });
         }
-        
-        return true;
       },
-      
-      removeItem: (menuItemId: number) => {
+
+      removeItem: (menuItemId: number, daySlotId: number) => {
         const state = get();
-        const newItems = state.items.filter(i => i.menuItem.id !== menuItemId);
-        
         set({
-          items: newItems,
-          chefId: newItems.length > 0 ? state.chefId : null,
-          chef: newItems.length > 0 ? state.chef : null,
+          items: state.items.filter(
+            i => !(i.menuItem.id === menuItemId && i.daySlotId === daySlotId)
+          ),
         });
       },
-      
-      updateQuantity: (menuItemId: number, quantity: number) => {
-        const state = get();
-        
+
+      updateQuantity: (menuItemId: number, daySlotId: number, quantity: number) => {
         if (quantity <= 0) {
-          get().removeItem(menuItemId);
+          get().removeItem(menuItemId, daySlotId);
           return;
         }
-        
+
+        const state = get();
         set({
           items: state.items.map(i =>
-            i.menuItem.id === menuItemId
+            i.menuItem.id === menuItemId && i.daySlotId === daySlotId
               ? { ...i, quantity }
               : i
           ),
         });
       },
-      
+
       clearCart: () => {
-        set({ items: [], chefId: null, chef: null });
+        set({ items: [] });
       },
-      
+
       getTotal: () => {
         return get().items.reduce((sum, item) => sum + (item.servingOption.price * item.quantity), 0);
       },
-      
+
       getItemCount: () => {
         return get().items.reduce((sum, item) => sum + item.quantity, 0);
       },
-      
-      wouldRequireClear: (chefId: number) => {
-        const state = get();
-        return state.chefId !== null && state.chefId !== chefId && state.items.length > 0;
+
+      getItemsByChef: () => {
+        const map = new Map<number, { chef: ChefProfile; items: CartItem[] }>();
+        for (const item of get().items) {
+          const existing = map.get(item.chefId);
+          if (existing) {
+            existing.items.push(item);
+          } else {
+            map.set(item.chefId, { chef: item.chef, items: [item] });
+          }
+        }
+        return map;
+      },
+
+      getItemsByDay: () => {
+        const map = new Map<string, CartItem[]>();
+        for (const item of get().items) {
+          const key = item.daySlotDate || "unscheduled";
+          const existing = map.get(key);
+          if (existing) {
+            existing.push(item);
+          } else {
+            map.set(key, [item]);
+          }
+        }
+        return map;
       },
     }),
     {
       name: "kokkur-cart",
+      version: 2,
+      migrate: migrateCart,
     }
   )
 );

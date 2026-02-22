@@ -20,7 +20,6 @@ import {
 import { Header } from "@/components/header";
 import { MenuItemCard } from "@/components/menu-item-card";
 import { AllergenFilter } from "@/components/allergen-filter";
-import { CartClearModal } from "@/components/cart-clear-modal";
 import { useFavoritesStore } from "@/lib/favorites-store";
 import { useCartStore } from "@/lib/cart-store";
 import { useLocationStore } from "@/lib/location-store";
@@ -32,16 +31,15 @@ import { format, isBefore, parseISO } from "date-fns";
 export default function ChefProfile() {
   const { slug } = useParams<{ slug: string }>();
   const [excludedAllergens, setExcludedAllergens] = useState<number[]>([]);
-  const [cartClearModalOpen, setCartClearModalOpen] = useState(false);
   const { isFavorite, toggleFavorite } = useFavoritesStore();
-  const { wouldRequireClear, clearCart, addItem } = useCartStore();
+  const { addItem } = useCartStore();
   const { lat, lng } = useLocationStore();
   const { toast } = useToast();
-  const [pendingItem, setPendingItem] = useState<any>(null);
 
   const { data: chef, isLoading: chefLoading } = useQuery<ChefProfileWithDaySlots>({
     queryKey: ["/api/chefs", slug],
     enabled: !!slug,
+    staleTime: 0,
   });
 
   const { data: allergens } = useQuery<Allergen[]>({
@@ -64,13 +62,13 @@ export default function ChefProfile() {
     if (!chef?.daySlots) return [];
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
+
     return chef.daySlots
       .filter((slot: any) => {
         const slotDate = parseISO(slot.date);
         return !isBefore(slotDate, today);
       })
-      .sort((a: any, b: any) => 
+      .sort((a: any, b: any) =>
         parseISO(a.date).getTime() - parseISO(b.date).getTime()
       );
   }, [chef]);
@@ -98,34 +96,14 @@ export default function ChefProfile() {
     );
   };
 
-  const handleAddToCart = (item: any) => {
+  const handleAddToCart = (item: any, slotId: number, slotDate: string) => {
     if (!chef) return;
 
-    if (wouldRequireClear(chef.id)) {
-      setPendingItem(item);
-      setCartClearModalOpen(true);
-      return;
-    }
-
-    const success = addItem(item, chef);
-    if (success) {
-      toast({
-        title: "Added to cart",
-        description: `${item.title} has been added to your cart.`,
-      });
-    }
-  };
-
-  const handleConfirmClear = () => {
-    if (pendingItem && chef) {
-      clearCart();
-      addItem(pendingItem, chef);
-      toast({
-        title: "Cart updated",
-        description: `Started new order with ${pendingItem.title}.`,
-      });
-      setPendingItem(null);
-    }
+    addItem(item, chef, slotId, slotDate);
+    toast({
+      title: "Added to cart",
+      description: `${item.title} has been added to your cart.`,
+    });
   };
 
   const getFulfillmentInfo = () => {
@@ -233,7 +211,7 @@ export default function ChefProfile() {
                 <div className="flex flex-col items-center text-center space-y-4">
                   <div className="relative">
                     <Avatar className="h-24 w-24 ring-4 ring-background shadow-lg">
-                      <AvatarImage src={chef.profileImageUrl || undefined} alt={chef.name} />
+                      <AvatarImage src={chef.profileImageUrl || undefined} alt={chef.name} referrerPolicy="no-referrer" />
                       <AvatarFallback className="bg-primary/10 text-primary text-2xl font-medium">
                         {chef.name.split(" ").map((n) => n[0]).join("").toUpperCase()}
                       </AvatarFallback>
@@ -375,7 +353,10 @@ export default function ChefProfile() {
                             key={`${slot.id}-${item.id}`}
                             item={item}
                             chef={chef}
-                            onAddToCart={() => handleAddToCart(item)}
+                            daySlotId={slot.id}
+                            daySlotDate={slot.date}
+                            orderCutoffDate={slot.orderCutoffDate}
+                            onAddToCart={() => handleAddToCart(item, slot.id, slot.date)}
                           />
                         ))}
                       </div>
@@ -393,13 +374,6 @@ export default function ChefProfile() {
           </main>
         </div>
       </div>
-
-      <CartClearModal
-        open={cartClearModalOpen}
-        onOpenChange={setCartClearModalOpen}
-        newChefName={chef.name}
-        onConfirm={handleConfirmClear}
-      />
     </div>
   );
 }
