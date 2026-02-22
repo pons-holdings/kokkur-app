@@ -3,9 +3,6 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { z } from "zod";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
-import { db } from "./db";
-import { chefProfiles, menuItems, itemPhotos, menuDaySlots, menuItemAssignments } from "@shared/schema";
-import { sql } from "drizzle-orm";
 
 function parsePagination(query: { page?: string; limit?: string }) {
   const page = Math.max(1, parseInt(query.page as string) || 1);
@@ -22,26 +19,6 @@ export async function registerRoutes(
   await storage.seedData();
 
   registerObjectStorageRoutes(app);
-
-  // Debug endpoint to verify database state
-  app.get("/api/debug/data-check", async (_req, res) => {
-    try {
-      const [chefs] = await db.select({ count: sql<number>`count(*)` }).from(chefProfiles);
-      const [items] = await db.select({ count: sql<number>`count(*)` }).from(menuItems);
-      const [photos] = await db.select({ count: sql<number>`count(*)` }).from(itemPhotos);
-      const [slots] = await db.select({ count: sql<number>`count(*)` }).from(menuDaySlots);
-      const [assignments] = await db.select({ count: sql<number>`count(*)` }).from(menuItemAssignments);
-      const samplePhotos = await db.select().from(itemPhotos).limit(3);
-      const sampleChef = await db.select().from(chefProfiles).limit(1);
-      res.json({
-        counts: { chefs: chefs.count, items: items.count, photos: photos.count, slots: slots.count, assignments: assignments.count },
-        samplePhotos,
-        sampleChef: sampleChef[0] ? { name: sampleChef[0].name, profileImageUrl: sampleChef[0].profileImageUrl } : null,
-      });
-    } catch (error) {
-      res.status(500).json({ error: String(error) });
-    }
-  });
 
   app.get("/api/chefs", async (req, res) => {
     try {

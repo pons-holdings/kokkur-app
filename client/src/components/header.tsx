@@ -3,13 +3,13 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
-  ChefHat,
   ShoppingCart,
   MapPin,
   Menu,
   X,
   Search,
 } from "lucide-react";
+import { KokkurIcon } from "@/components/kokkur-logo";
 import { useCartStore } from "@/lib/cart-store";
 import { useLocationStore } from "@/lib/location-store";
 import { useState, useEffect } from "react";
@@ -50,10 +50,8 @@ export function Header({ onSearchChange, searchQuery = "" }: HeaderProps) {
       <div className="container mx-auto flex h-16 items-center justify-between gap-4 px-4">
         <Link href="/">
           <div className="flex items-center gap-2 cursor-pointer shrink-0" data-testid="link-home">
-            <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary">
-              <ChefHat className="h-5 w-5 text-primary-foreground" />
-            </div>
-            <span className="text-xl font-bold tracking-tight">Kokkur</span>
+            <KokkurIcon size={36} />
+            <span className="text-xl font-bold tracking-tight">kokkur</span>
           </div>
         </Link>
 

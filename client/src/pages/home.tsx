@@ -41,6 +41,7 @@ import {
 } from "lucide-react";
 import { FaInstagram, FaXTwitter, FaFacebookF, FaTiktok } from "react-icons/fa6";
 import { Header } from "@/components/header";
+import { KokkurIcon } from "@/components/kokkur-logo";
 import { MenuItemCard } from "@/components/menu-item-card";
 import { DaySelector } from "@/components/day-selector";
 import { MultiSelectFilter } from "@/components/multi-select-filter";
@@ -84,7 +85,6 @@ export default function Home() {
   const [newsletterSubmitted, setNewsletterSubmitted] = useState(false);
   const [placeholderIndex, setPlaceholderIndex] = useState(0);
   const [manualLocationInput, setManualLocationInput] = useState("");
-  const [showNoChefs, setShowNoChefs] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [excludedAllergens, setExcludedAllergens] = useState<number[]>([]);
 
@@ -100,17 +100,6 @@ export default function Home() {
     queryKey: ["/api/chefs"],
     staleTime: 0, // Always refetch to ensure fresh data after server restarts
   });
-
-  // Debug: log API response to verify photos are reaching the client
-  useEffect(() => {
-    if (apiChefs && apiChefs.length > 0) {
-      const c = apiChefs[0];
-      const firstItem = c.daySlots?.[0]?.items?.[0];
-      console.log('[IMAGE DEBUG] First chef:', c.name, 'profileImageUrl:', c.profileImageUrl);
-      console.log('[IMAGE DEBUG] First item:', firstItem?.title, 'coverPhoto:', firstItem?.coverPhoto, 'photos:', firstItem?.photos?.length);
-      console.log('[IMAGE DEBUG] Total chefs with profileImageUrl:', apiChefs.filter(ch => ch.profileImageUrl).length, '/', apiChefs.length);
-    }
-  }, [apiChefs]);
 
   // Attach distance to each chef
   const chefsWithDistance = useMemo(() => {
@@ -220,12 +209,9 @@ export default function Home() {
       if (coords) {
         const name = getLocationNameFromZip(input) || input;
         setLocation(input, coords.lat, coords.lng, name);
-        if (input === "00000") setShowNoChefs(true);
-        else setShowNoChefs(false);
       }
     } else {
       setLocationFromCoords(40.7128, -74.006, input);
-      setShowNoChefs(false);
     }
     setManualLocationInput("");
   }, [manualLocationInput, setLocation, setLocationFromCoords]);
@@ -234,7 +220,7 @@ export default function Home() {
   const searchLower = searchQuery.toLowerCase().trim();
 
   const { filteredChefs, dishResults } = useMemo(() => {
-    if (showNoChefs || zipCode === "00000") {
+    if (zipCode === "00000") {
       return { filteredChefs: [], dishResults: [] };
     }
 
@@ -332,7 +318,7 @@ export default function Home() {
     }
 
     return { filteredChefs: chefs, dishResults: dishes };
-  }, [chefsWithDistance, searchLower, activeCuisines, sortBy, showNoChefs, zipCode]);
+  }, [chefsWithDistance, searchLower, activeCuisines, sortBy, zipCode]);
 
   // ── Day Menu: flat list of items available on the selected day ──
   type FlatMenuItem = {
@@ -344,7 +330,7 @@ export default function Home() {
   };
 
   const flatDayMenuItems = useMemo(() => {
-    if (showNoChefs || zipCode === "00000") return [] as FlatMenuItem[];
+    if (zipCode === "00000") return [] as FlatMenuItem[];
 
     const now = new Date();
     now.setHours(0, 0, 0, 0);
@@ -429,7 +415,7 @@ export default function Home() {
     }
 
     return items;
-  }, [chefsWithDistance, selectedDate, searchLower, activeCuisines, sortBy, showNoChefs, zipCode, excludedAllergens]);
+  }, [chefsWithDistance, selectedDate, searchLower, activeCuisines, sortBy, zipCode, excludedAllergens]);
 
   const totalDayMenuItems = flatDayMenuItems.length;
   const uniqueChefCount = new Set(flatDayMenuItems.map((fi) => fi.chef.id)).size;
@@ -439,7 +425,7 @@ export default function Home() {
     [chefsWithDistance]
   );
 
-  const isNoChefs = showNoChefs || zipCode === "00000";
+  const isNoChefs = zipCode === "00000";
   const hasLocation = !!locationName;
 
   const handleNewsletterSubmit = (e: React.FormEvent) => {
@@ -454,11 +440,11 @@ export default function Home() {
 
 
       {/* ── Hero Section ── */}
-      <section className="bg-gradient-to-br from-primary/10 via-accent/5 to-background">
+      <section className="bg-[linear-gradient(160deg,#1B2E1A_0%,rgba(27,46,26,0.93)_35%,rgba(46,125,50,0.8)_100%)]">
         <div className="container mx-auto px-4 pt-6 pb-4 md:pt-10 md:pb-6">
           <div className="max-w-3xl mx-auto text-center space-y-3">
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight leading-tight">
-              Real food, made by <span className="text-primary">real people</span> near you
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight leading-tight text-white">
+              Real food, made by <span className="text-[#6AAF4A]">real people</span> near you
             </h1>
 
             {/* ── Smart Search Bar ── */}
@@ -472,7 +458,7 @@ export default function Home() {
                         <MapPin className="h-4 w-4 text-primary shrink-0" />
                         <span className="text-sm font-medium truncate">{locationName}</span>
                         <button
-                          onClick={() => { clearLocation(); setShowNoChefs(false); }}
+                          onClick={() => { clearLocation(); }}
                           className="ml-auto text-muted-foreground hover:text-foreground shrink-0"
                           aria-label="Clear location"
                         >
@@ -555,7 +541,7 @@ export default function Home() {
               </div>
 
               {/* Multi-select filter dropdowns */}
-              <div className="flex items-center justify-center gap-2 flex-wrap">
+              <div className="flex items-center justify-center gap-2 flex-wrap [&_button]:!border-white/30 [&_button]:!text-white [&_button_span]:!text-white/90 [&_button_svg]:!text-white/60 [&_button]:hover:!bg-white/10">
                 <MultiSelectFilter
                   label="Cuisine"
                   icon={<UtensilsCrossed className="h-3.5 w-3.5" />}
@@ -579,20 +565,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Demo toggle for no-chefs state */}
-            <div className="flex items-center justify-center gap-2">
-              <span className="text-xs text-muted-foreground">Demo:</span>
-              <button
-                onClick={() => setShowNoChefs(!showNoChefs)}
-                className={`text-xs px-3 py-1 rounded-full border transition-colors ${
-                  showNoChefs
-                    ? "bg-destructive/10 text-destructive border-destructive/30"
-                    : "text-muted-foreground border-border hover:bg-muted"
-                }`}
-              >
-                {showNoChefs ? "Showing: No chefs nearby" : 'Toggle "no chefs" view'}
-              </button>
-            </div>
           </div>
         </div>
       </section>
@@ -869,12 +841,13 @@ export default function Home() {
             <div className="md:col-span-1 space-y-4">
               <Link href="/">
                 <div className="flex items-center gap-2 cursor-pointer">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary">
-                    <ChefHat className="h-5 w-5 text-primary-foreground" />
-                  </div>
-                  <span className="text-xl font-bold tracking-tight">Kokkur</span>
+                  <KokkurIcon size={36} />
+                  <span className="text-xl font-bold tracking-tight">kokkur</span>
                 </div>
               </Link>
+              <p className="text-[9px] font-semibold tracking-[0.2em] uppercase text-muted-foreground">
+                LOCAL CHEFS · REAL FOOD
+              </p>
               <p className="text-sm text-muted-foreground leading-relaxed">
                 Connecting communities through the joy of homemade food.
               </p>
@@ -932,7 +905,7 @@ export default function Home() {
           </div>
 
           <div className="border-t mt-8 pt-6 text-center text-sm text-muted-foreground">
-            &copy; 2025 Kokkur. All rights reserved.
+            &copy; 2026 kokkur. All rights reserved.
           </div>
         </div>
       </footer>
@@ -1090,7 +1063,7 @@ function NoChefSection({
         We're not in your neighborhood yet — but we're on our way!
       </h2>
       <p className="text-muted-foreground mb-8 leading-relaxed">
-        Kokkur is growing every day. Drop your email below and we'll let you
+        kokkur is growing every day. Drop your email below and we'll let you
         know the moment chefs near you start cooking.
       </p>
 
@@ -1137,7 +1110,7 @@ function NoChefSection({
       </AnimatePresence>
 
       <p className="text-sm text-muted-foreground mt-6">
-        Know a chef who should be on Kokkur?{" "}
+        Know a chef who should be on kokkur?{" "}
         <a href="#" className="text-primary hover:underline font-medium inline-flex items-center gap-1">
           Tell them about us <ArrowRight className="h-3 w-3" />
         </a>

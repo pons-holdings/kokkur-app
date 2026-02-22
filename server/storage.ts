@@ -249,13 +249,6 @@ export class DatabaseStorage implements IStorage {
       daySlots: slotsByChefId.get(chef.id) || [],
     }));
 
-    // Diagnostic: log sample data to verify photos are included
-    if (result.length > 0) {
-      const c = result[0];
-      const firstItem = c.daySlots?.[0]?.items?.[0];
-      console.log(`getChefs() — chef "${c.name}": profileImageUrl=${c.profileImageUrl ? 'SET' : 'MISSING'}, daySlots=${c.daySlots?.length}, firstItem="${firstItem?.title || 'NONE'}": photos=${firstItem?.photos?.length ?? 'N/A'}, coverPhoto=${firstItem?.coverPhoto ? 'YES' : 'NO'}`);
-    }
-
     return result;
   }
 
@@ -792,7 +785,14 @@ export class DatabaseStorage implements IStorage {
 
   async seedData(): Promise<void> {
    try {
-    // Always re-seed: clear all tables in dependency order
+    // Skip if data already exists
+    const [existing] = await db.select({ count: sql<number>`count(*)` }).from(chefProfiles);
+    if (existing.count > 0) {
+      console.log("Database already seeded, skipping...");
+      return;
+    }
+
+    // Clear all tables in dependency order (for fresh seed)
     await db.delete(assignmentServingOptions);
     await db.delete(orderItems);
     await db.delete(orders);
