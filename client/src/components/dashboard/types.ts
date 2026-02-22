@@ -33,6 +33,25 @@ export const menuItemSchema = z.object({
 
 export type MenuItemFormData = z.infer<typeof menuItemSchema>;
 
+export const chefProfileSchema = z.object({
+  name: z.string().min(2, "Name must be at least 2 characters"),
+  bio: z.string().optional().default(""),
+  profileImageUrl: z.string().optional().default(""),
+  locationLat: z.number(),
+  locationLong: z.number(),
+  locationName: z.string().optional().default(""),
+  serviceRadius: z.number().min(1, "Minimum 1 mile").max(100, "Maximum 100 miles"),
+  fulfillmentMethod: z.enum(["pickup", "delivery", "both"]),
+  deliveryFee: z.number().min(0).optional().default(0),
+  cuisineTags: z.array(z.string()).default([]),
+  paymentMethods: z.array(z.object({
+    method: z.string().min(1),
+    handle: z.string().min(1, "Handle is required"),
+  })).default([]),
+});
+
+export type ChefProfileFormData = z.infer<typeof chefProfileSchema>;
+
 export interface PrepListItem {
   menuItemId: number;
   itemTitle: string;

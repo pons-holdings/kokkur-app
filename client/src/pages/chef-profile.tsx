@@ -16,6 +16,7 @@ import {
   Clock,
   ChefHat,
   AlertTriangle,
+  CreditCard,
 } from "lucide-react";
 import { Header } from "@/components/header";
 import { MenuItemCard } from "@/components/menu-item-card";
@@ -286,6 +287,37 @@ export default function ChefProfile() {
                     </p>
                   </div>
                 </div>
+
+                {(() => {
+                  const methods = chef.paymentMethods as Array<{ method: string; handle: string }> | null;
+                  if (!methods || methods.length === 0) return null;
+                  const methodLabels: Record<string, string> = {
+                    venmo: "Venmo",
+                    paypal: "PayPal",
+                    zelle: "Zelle",
+                    cashapp: "Cash App",
+                    cash: "Cash",
+                    other: "Other",
+                  };
+                  return (
+                    <div className="flex items-start gap-3 text-sm">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10">
+                        <CreditCard className="h-4 w-4 text-primary" />
+                      </div>
+                      <div>
+                        <p className="font-medium">Payment</p>
+                        <div className="space-y-1 mt-0.5">
+                          {methods.map((pm, i) => (
+                            <p key={i} className="text-muted-foreground">
+                              <span className="font-medium text-foreground">{methodLabels[pm.method] || pm.method}</span>{" "}
+                              {pm.handle}
+                            </p>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
               </CardContent>
             </Card>
 

@@ -22,17 +22,17 @@ export function KokkurIcon({ size = 36, className = "" }: KokkurIconProps) {
       <circle cx="32" cy="28" r="20" fill="rgba(255,255,255,0.12)" />
       {/* Chef hat - three rounded bumps */}
       <path
-        d="M20 32C20 32 20 26 20 24C20 20 22 17 25 16C25 13 27.5 10 32 10C36.5 10 39 13 39 16C42 17 44 20 44 24C44 26 44 32 44 32Z"
+        d="M20 37C20 37 20 31 20 29C20 25 22 22 25 21C25 18 27.5 15 32 15C36.5 15 39 18 39 21C42 22 44 25 44 29C44 31 44 37 44 37Z"
         fill="white"
       />
       {/* Chef hat - left bump */}
-      <circle cx="23" cy="17" r="5.5" fill="white" />
+      <circle cx="23" cy="22" r="5.5" fill="white" />
       {/* Chef hat - center bump (taller) */}
-      <circle cx="32" cy="14" r="6.5" fill="white" />
+      <circle cx="32" cy="19" r="6.5" fill="white" />
       {/* Chef hat - right bump */}
-      <circle cx="41" cy="17" r="5.5" fill="white" />
+      <circle cx="41" cy="22" r="5.5" fill="white" />
       {/* Chef hat - rectangular band */}
-      <rect x="20" y="31" width="24" height="6" rx="1.5" fill="white" />
+      <rect x="20" y="36" width="24" height="6" rx="1.5" fill="white" />
     </svg>
   );
 }

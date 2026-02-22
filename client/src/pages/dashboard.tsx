@@ -16,6 +16,7 @@ import MenuItemsTab from "@/components/dashboard/MenuItemsTab";
 import ScheduleTab from "@/components/dashboard/ScheduleTab";
 import PrepListTab from "@/components/dashboard/PrepListTab";
 import OrdersTab from "@/components/dashboard/OrdersTab";
+import ProfileTab from "@/components/dashboard/ProfileTab";
 import type {
   ChefProfileWithDaySlots,
   Allergen,
@@ -142,6 +143,7 @@ export default function Dashboard() {
             <TabsTrigger value="menus" data-testid="tab-schedule">My Schedule</TabsTrigger>
             <TabsTrigger value="prep" data-testid="tab-prep">Prep List</TabsTrigger>
             <TabsTrigger value="orders" data-testid="tab-orders">Orders</TabsTrigger>
+            <TabsTrigger value="profile" data-testid="tab-profile">Profile</TabsTrigger>
           </TabsList>
 
           <TabsContent value="items" className="space-y-6">
@@ -173,6 +175,10 @@ export default function Dashboard() {
               ordersLoading={ordersLoading}
               chefId={selectedChef?.id}
             />
+          </TabsContent>
+
+          <TabsContent value="profile" className="space-y-6">
+            <ProfileTab chef={selectedChef} />
           </TabsContent>
         </Tabs>
       </div>

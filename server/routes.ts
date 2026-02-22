@@ -43,6 +43,44 @@ export async function registerRoutes(
     }
   });
 
+  const updateChefSchema = z.object({
+    name: z.string().min(2).optional(),
+    bio: z.string().nullable().optional(),
+    profileImageUrl: z.string().nullable().optional(),
+    cuisineTags: z.array(z.string()).optional(),
+    locationLat: z.number().optional(),
+    locationLong: z.number().optional(),
+    locationName: z.string().nullable().optional(),
+    serviceRadius: z.number().min(1).max(100).optional(),
+    fulfillmentMethod: z.enum(["pickup", "delivery", "both"]).optional(),
+    deliveryFee: z.number().min(0).nullable().optional(),
+    paymentMethods: z.array(z.object({
+      method: z.string(),
+      handle: z.string(),
+    })).nullable().optional(),
+  });
+
+  app.patch("/api/chefs/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid chef ID" });
+      }
+      const data = updateChefSchema.parse(req.body);
+      const updated = await storage.updateChef(id, data);
+      if (!updated) {
+        return res.status(404).json({ error: "Chef not found" });
+      }
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid data", details: error.errors });
+      }
+      console.error("Error updating chef:", error);
+      res.status(500).json({ error: "Failed to update chef" });
+    }
+  });
+
   app.get("/api/allergens", async (req, res) => {
     try {
       const allergens = await storage.getAllergens();

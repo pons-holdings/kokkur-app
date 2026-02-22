@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, integer, real, timestamp, pgEnum, primaryKey, index } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, real, timestamp, pgEnum, primaryKey, index, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -23,6 +23,7 @@ export const chefProfiles = pgTable("chef_profiles", {
   serviceRadius: integer("service_radius").notNull().default(10),
   fulfillmentMethod: fulfillmentMethodEnum("fulfillment_method").notNull().default("both"),
   deliveryFee: real("delivery_fee").default(0),
+  paymentMethods: jsonb("payment_methods").default([]),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

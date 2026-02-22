@@ -28,6 +28,7 @@ export interface IStorage {
   getChefBySlug(slug: string): Promise<ChefProfileWithDaySlots | undefined>;
   getChefById(id: number): Promise<ChefProfile | undefined>;
   createChef(chef: InsertChefProfile): Promise<ChefProfile>;
+  updateChef(id: number, chef: Partial<InsertChefProfile>): Promise<ChefProfile | undefined>;
 
   // Menus
   getMenusByChefId(chefId: number): Promise<MenuWithDaySlots[]>;
@@ -314,6 +315,11 @@ export class DatabaseStorage implements IStorage {
   async createChef(chef: InsertChefProfile): Promise<ChefProfile> {
     const [newChef] = await db.insert(chefProfiles).values(chef).returning();
     return newChef;
+  }
+
+  async updateChef(id: number, chef: Partial<InsertChefProfile>): Promise<ChefProfile | undefined> {
+    const [updated] = await db.update(chefProfiles).set(chef).where(eq(chefProfiles.id, id)).returning();
+    return updated;
   }
 
   async getMenusByChefId(chefId: number): Promise<MenuWithDaySlots[]> {
