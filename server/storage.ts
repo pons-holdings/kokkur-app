@@ -877,34 +877,176 @@ export class DatabaseStorage implements IStorage {
       deliveryFee: 6.99,
     });
 
+    const chef4 = await this.createChef({
+      slug: "chef-luna",
+      name: "Chef Luna Reyes",
+      bio: "100% plant-based meals that prove vegan food can be bold, satisfying, and delicious. Zero compromise on flavor.",
+      cuisineTags: ["Vegan", "Plant-Based", "Healthy"],
+      locationLat: 40.7340,
+      locationLong: -74.0054,
+      locationName: "West Village, Manhattan",
+      serviceRadius: 5,
+      fulfillmentMethod: "both",
+      deliveryFee: 4.99,
+    });
+
+    const chef5 = await this.createChef({
+      slug: "chef-kenji",
+      name: "Chef Kenji Tanaka",
+      bio: "Authentic Japanese comfort food — from rich tonkotsu ramen to hand-rolled sushi, made with traditional techniques.",
+      cuisineTags: ["Japanese", "Ramen", "Sushi"],
+      locationLat: 40.7527,
+      locationLong: -73.9735,
+      locationName: "Midtown East, Manhattan",
+      serviceRadius: 6,
+      fulfillmentMethod: "pickup",
+    });
+
+    const chef6 = await this.createChef({
+      slug: "chef-sophie",
+      name: "Chef Sophie Martin",
+      bio: "Parisian-trained pastry chef bringing artisan croissants, tarts, and cakes to your doorstep.",
+      cuisineTags: ["Baked Goods", "French", "Pastry"],
+      locationLat: 40.7654,
+      locationLong: -73.9857,
+      locationName: "Hell's Kitchen, Manhattan",
+      serviceRadius: 5,
+      fulfillmentMethod: "both",
+      deliveryFee: 3.99,
+    });
+
+    const chef7 = await this.createChef({
+      slug: "chef-marcus",
+      name: "Chef Marcus Williams",
+      bio: "Low-and-slow smoked meats with homemade rubs and sauces. Texas-style BBQ, Brooklyn soul.",
+      cuisineTags: ["BBQ", "Southern", "Smoked Meats"],
+      locationLat: 40.7128,
+      locationLong: -73.9566,
+      locationName: "Williamsburg, Brooklyn",
+      serviceRadius: 8,
+      fulfillmentMethod: "both",
+      deliveryFee: 5.99,
+    });
+
+    const chef8 = await this.createChef({
+      slug: "chef-denise",
+      name: "Chef Denise Jackson",
+      bio: "Harlem soul food rooted in family tradition. Collard greens, fried chicken, and mac & cheese like grandma made.",
+      cuisineTags: ["Soul Food", "Southern", "Comfort Food"],
+      locationLat: 40.8116,
+      locationLong: -73.9465,
+      locationName: "Harlem, Manhattan",
+      serviceRadius: 10,
+      fulfillmentMethod: "delivery",
+      deliveryFee: 6.99,
+    });
+
+    const chef9 = await this.createChef({
+      slug: "chef-nadine",
+      name: "Chef Nadine Baptiste",
+      bio: "Island flavors from Jamaica and Haiti. Jerk chicken, oxtail stew, and plantains that transport you to the Caribbean.",
+      cuisineTags: ["Caribbean", "Jamaican", "Haitian"],
+      locationLat: 40.6694,
+      locationLong: -73.9422,
+      locationName: "Crown Heights, Brooklyn",
+      serviceRadius: 7,
+      fulfillmentMethod: "both",
+      deliveryFee: 5.99,
+    });
+
+    const chef10 = await this.createChef({
+      slug: "chef-bobby",
+      name: "Chef Bobby Hayes",
+      bio: "Classic American comfort food done right. Burgers, meatloaf, and milkshakes — honest food, no fuss.",
+      cuisineTags: ["Comfort Food", "American", "Diner"],
+      locationLat: 40.7720,
+      locationLong: -73.9303,
+      locationName: "Astoria, Queens",
+      serviceRadius: 8,
+      fulfillmentMethod: "pickup",
+    });
+
+    const chef11 = await this.createChef({
+      slug: "chef-priya",
+      name: "Chef Priya Sharma",
+      bio: "Vibrant Indian home cooking. From butter chicken to dosas, every spice blend is ground fresh daily.",
+      cuisineTags: ["Indian", "Curry", "Vegetarian-Friendly"],
+      locationLat: 40.7497,
+      locationLong: -73.8831,
+      locationName: "Jackson Heights, Queens",
+      serviceRadius: 10,
+      fulfillmentMethod: "delivery",
+      deliveryFee: 7.99,
+    });
+
     // Create day slots directly for chefs (calendar-based architecture)
-    const daySlot1_1 = await this.createDaySlot({
-      chefId: chef1.id,
-      date: new Date("2026-02-05"),
-      orderCutoffDate: new Date("2026-02-04"),
-    });
-    const daySlot1_2 = await this.createDaySlot({
-      chefId: chef1.id,
-      date: new Date("2026-02-07"),
-      orderCutoffDate: new Date("2026-02-06"),
-    });
+    // Use relative dates so seed data always shows upcoming offerings
+    const today = new Date();
+    today.setHours(12, 0, 0, 0);
+    const futureDate = (daysFromNow: number) => {
+      const d = new Date(today);
+      d.setDate(d.getDate() + daysFromNow);
+      return d;
+    };
 
-    const daySlot2 = await this.createDaySlot({
-      chefId: chef2.id,
-      date: new Date("2026-02-08"),
-      orderCutoffDate: new Date("2026-02-06"),
-    });
+    // Chef 1 (Maria) - 4 day slots staggered across next 10 days
+    const daySlot1_1 = await this.createDaySlot({ chefId: chef1.id, date: futureDate(1), orderCutoffDate: futureDate(0) });
+    const daySlot1_2 = await this.createDaySlot({ chefId: chef1.id, date: futureDate(4), orderCutoffDate: futureDate(3) });
+    const daySlot1_3 = await this.createDaySlot({ chefId: chef1.id, date: futureDate(7), orderCutoffDate: futureDate(6) });
+    const daySlot1_4 = await this.createDaySlot({ chefId: chef1.id, date: futureDate(10), orderCutoffDate: futureDate(9) });
 
-    const daySlot3_1 = await this.createDaySlot({
-      chefId: chef3.id,
-      date: new Date("2026-02-06"),
-      orderCutoffDate: new Date("2026-02-04"),
-    });
-    const daySlot3_2 = await this.createDaySlot({
-      chefId: chef3.id,
-      date: new Date("2026-02-08"),
-      orderCutoffDate: new Date("2026-02-06"),
-    });
+    // Chef 2 (Marco) - 4 day slots
+    const daySlot2_1 = await this.createDaySlot({ chefId: chef2.id, date: futureDate(2), orderCutoffDate: futureDate(1) });
+    const daySlot2_2 = await this.createDaySlot({ chefId: chef2.id, date: futureDate(5), orderCutoffDate: futureDate(4) });
+    const daySlot2_3 = await this.createDaySlot({ chefId: chef2.id, date: futureDate(8), orderCutoffDate: futureDate(7) });
+    const daySlot2_4 = await this.createDaySlot({ chefId: chef2.id, date: futureDate(11), orderCutoffDate: futureDate(10) });
+
+    // Chef 3 (Mei) - 5 day slots
+    const daySlot3_1 = await this.createDaySlot({ chefId: chef3.id, date: futureDate(1), orderCutoffDate: futureDate(0) });
+    const daySlot3_2 = await this.createDaySlot({ chefId: chef3.id, date: futureDate(3), orderCutoffDate: futureDate(2) });
+    const daySlot3_3 = await this.createDaySlot({ chefId: chef3.id, date: futureDate(6), orderCutoffDate: futureDate(5) });
+    const daySlot3_4 = await this.createDaySlot({ chefId: chef3.id, date: futureDate(8), orderCutoffDate: futureDate(7) });
+    const daySlot3_5 = await this.createDaySlot({ chefId: chef3.id, date: futureDate(11), orderCutoffDate: futureDate(10) });
+
+    // Chef 4 (Luna) - 3 day slots
+    const daySlot4_1 = await this.createDaySlot({ chefId: chef4.id, date: futureDate(2), orderCutoffDate: futureDate(1) });
+    const daySlot4_2 = await this.createDaySlot({ chefId: chef4.id, date: futureDate(5), orderCutoffDate: futureDate(4) });
+    const daySlot4_3 = await this.createDaySlot({ chefId: chef4.id, date: futureDate(9), orderCutoffDate: futureDate(8) });
+
+    // Chef 5 (Kenji) - 3 day slots
+    const daySlot5_1 = await this.createDaySlot({ chefId: chef5.id, date: futureDate(1), orderCutoffDate: futureDate(0) });
+    const daySlot5_2 = await this.createDaySlot({ chefId: chef5.id, date: futureDate(4), orderCutoffDate: futureDate(3) });
+    const daySlot5_3 = await this.createDaySlot({ chefId: chef5.id, date: futureDate(8), orderCutoffDate: futureDate(7) });
+
+    // Chef 6 (Sophie) - 3 day slots
+    const daySlot6_1 = await this.createDaySlot({ chefId: chef6.id, date: futureDate(3), orderCutoffDate: futureDate(2) });
+    const daySlot6_2 = await this.createDaySlot({ chefId: chef6.id, date: futureDate(6), orderCutoffDate: futureDate(5) });
+    const daySlot6_3 = await this.createDaySlot({ chefId: chef6.id, date: futureDate(10), orderCutoffDate: futureDate(9) });
+
+    // Chef 7 (Marcus) - 3 day slots
+    const daySlot7_1 = await this.createDaySlot({ chefId: chef7.id, date: futureDate(2), orderCutoffDate: futureDate(1) });
+    const daySlot7_2 = await this.createDaySlot({ chefId: chef7.id, date: futureDate(5), orderCutoffDate: futureDate(4) });
+    const daySlot7_3 = await this.createDaySlot({ chefId: chef7.id, date: futureDate(9), orderCutoffDate: futureDate(8) });
+
+    // Chef 8 (Denise) - 3 day slots
+    const daySlot8_1 = await this.createDaySlot({ chefId: chef8.id, date: futureDate(1), orderCutoffDate: futureDate(0) });
+    const daySlot8_2 = await this.createDaySlot({ chefId: chef8.id, date: futureDate(4), orderCutoffDate: futureDate(3) });
+    const daySlot8_3 = await this.createDaySlot({ chefId: chef8.id, date: futureDate(7), orderCutoffDate: futureDate(6) });
+
+    // Chef 9 (Nadine) - 3 day slots
+    const daySlot9_1 = await this.createDaySlot({ chefId: chef9.id, date: futureDate(3), orderCutoffDate: futureDate(2) });
+    const daySlot9_2 = await this.createDaySlot({ chefId: chef9.id, date: futureDate(6), orderCutoffDate: futureDate(5) });
+    const daySlot9_3 = await this.createDaySlot({ chefId: chef9.id, date: futureDate(10), orderCutoffDate: futureDate(9) });
+
+    // Chef 10 (Bobby) - 3 day slots
+    const daySlot10_1 = await this.createDaySlot({ chefId: chef10.id, date: futureDate(2), orderCutoffDate: futureDate(1) });
+    const daySlot10_2 = await this.createDaySlot({ chefId: chef10.id, date: futureDate(5), orderCutoffDate: futureDate(4) });
+    const daySlot10_3 = await this.createDaySlot({ chefId: chef10.id, date: futureDate(8), orderCutoffDate: futureDate(7) });
+
+    // Chef 11 (Priya) - 3 day slots
+    const daySlot11_1 = await this.createDaySlot({ chefId: chef11.id, date: futureDate(1), orderCutoffDate: futureDate(0) });
+    const daySlot11_2 = await this.createDaySlot({ chefId: chef11.id, date: futureDate(4), orderCutoffDate: futureDate(3) });
+    const daySlot11_3 = await this.createDaySlot({ chefId: chef11.id, date: futureDate(7), orderCutoffDate: futureDate(6) });
 
     const findAllergen = (name: string) => createdAllergens.find((a) => a.name === name)?.id || 0;
     const findIngredient = (name: string) => createdIngredients.find((i) => i.name === name)?.id || 0;
@@ -922,6 +1064,8 @@ export class DatabaseStorage implements IStorage {
     await this.createItemPhoto({ menuItemId: item1.id, imageUrl: "/images/dishes/enchiladas-verdes.jpg", isCover: 1 });
     await this.assignItemToDaySlot(daySlot1_1.id, item1.id);
     await this.assignItemToDaySlot(daySlot1_2.id, item1.id);
+    await this.assignItemToDaySlot(daySlot1_3.id, item1.id);
+    await this.assignItemToDaySlot(daySlot1_4.id, item1.id);
 
     const item2 = await this.createMenuItem({
       chefId: chef1.id,
@@ -934,6 +1078,7 @@ export class DatabaseStorage implements IStorage {
     await this.addItemIngredients(item2.id, [findIngredient("Cheese"), findIngredient("Bell Peppers")]);
     await this.createItemPhoto({ menuItemId: item2.id, imageUrl: "/images/dishes/tamales.jpg", isCover: 1 });
     await this.assignItemToDaySlot(daySlot1_1.id, item2.id);
+    await this.assignItemToDaySlot(daySlot1_3.id, item2.id);
 
     const item3 = await this.createMenuItem({
       chefId: chef1.id,
@@ -945,6 +1090,7 @@ export class DatabaseStorage implements IStorage {
     await this.addItemIngredients(item3.id, [findIngredient("Pork"), findIngredient("Onions"), findIngredient("Garlic")]);
     await this.createItemPhoto({ menuItemId: item3.id, imageUrl: "/images/dishes/carnitas-tacos.jpg", isCover: 1 });
     await this.assignItemToDaySlot(daySlot1_2.id, item3.id);
+    await this.assignItemToDaySlot(daySlot1_4.id, item3.id);
 
     // Chef 2's items
     const item4 = await this.createMenuItem({
@@ -957,7 +1103,10 @@ export class DatabaseStorage implements IStorage {
     await this.addItemAllergens(item4.id, [findAllergen("Milk"), findAllergen("Eggs"), findAllergen("Wheat")]);
     await this.addItemIngredients(item4.id, [findIngredient("Beef"), findIngredient("Pasta"), findIngredient("Cheese"), findIngredient("Tomatoes")]);
     await this.createItemPhoto({ menuItemId: item4.id, imageUrl: "/images/dishes/lasagna.jpg", isCover: 1 });
-    await this.assignItemToDaySlot(daySlot2.id, item4.id);
+    await this.assignItemToDaySlot(daySlot2_1.id, item4.id);
+    await this.assignItemToDaySlot(daySlot2_2.id, item4.id);
+    await this.assignItemToDaySlot(daySlot2_3.id, item4.id);
+    await this.assignItemToDaySlot(daySlot2_4.id, item4.id);
 
     const item5 = await this.createMenuItem({
       chefId: chef2.id,
@@ -969,7 +1118,8 @@ export class DatabaseStorage implements IStorage {
     await this.addItemAllergens(item5.id, [findAllergen("Milk"), findAllergen("Eggs"), findAllergen("Wheat")]);
     await this.addItemIngredients(item5.id, [findIngredient("Pasta"), findIngredient("Butter"), findIngredient("Cream"), findIngredient("Cheese")]);
     await this.createItemPhoto({ menuItemId: item5.id, imageUrl: "/images/dishes/fettuccine-alfredo.jpg", isCover: 1 });
-    await this.assignItemToDaySlot(daySlot2.id, item5.id);
+    await this.assignItemToDaySlot(daySlot2_1.id, item5.id);
+    await this.assignItemToDaySlot(daySlot2_3.id, item5.id);
 
     const item6 = await this.createMenuItem({
       chefId: chef2.id,
@@ -981,7 +1131,8 @@ export class DatabaseStorage implements IStorage {
     await this.addItemAllergens(item6.id, [findAllergen("Milk"), findAllergen("Eggs"), findAllergen("Wheat")]);
     await this.addItemIngredients(item6.id, [findIngredient("Chicken"), findIngredient("Pasta"), findIngredient("Tomatoes"), findIngredient("Cheese")]);
     await this.createItemPhoto({ menuItemId: item6.id, imageUrl: "/images/dishes/chicken-parmesan.jpg", isCover: 1 });
-    await this.assignItemToDaySlot(daySlot2.id, item6.id);
+    await this.assignItemToDaySlot(daySlot2_2.id, item6.id);
+    await this.assignItemToDaySlot(daySlot2_4.id, item6.id);
 
     const item7 = await this.createMenuItem({
       chefId: chef2.id,
@@ -992,7 +1143,8 @@ export class DatabaseStorage implements IStorage {
     await this.createServingOption({ menuItemId: item7.id, servingSize: 6, label: "Whole cake (6-8 slices)", price: 49.99, isDefault: 0 });
     await this.addItemAllergens(item7.id, [findAllergen("Milk"), findAllergen("Eggs"), findAllergen("Wheat")]);
     await this.createItemPhoto({ menuItemId: item7.id, imageUrl: "/images/dishes/tiramisu.jpg", isCover: 1 });
-    await this.assignItemToDaySlot(daySlot2.id, item7.id);
+    await this.assignItemToDaySlot(daySlot2_1.id, item7.id);
+    await this.assignItemToDaySlot(daySlot2_2.id, item7.id);
 
     // Chef 3's items
     const item8 = await this.createMenuItem({
@@ -1006,6 +1158,9 @@ export class DatabaseStorage implements IStorage {
     await this.createItemPhoto({ menuItemId: item8.id, imageUrl: "/images/dishes/teriyaki-salmon.jpg", isCover: 1 });
     await this.assignItemToDaySlot(daySlot3_1.id, item8.id);
     await this.assignItemToDaySlot(daySlot3_2.id, item8.id);
+    await this.assignItemToDaySlot(daySlot3_3.id, item8.id);
+    await this.assignItemToDaySlot(daySlot3_4.id, item8.id);
+    await this.assignItemToDaySlot(daySlot3_5.id, item8.id);
 
     const item9 = await this.createMenuItem({
       chefId: chef3.id,
@@ -1018,6 +1173,8 @@ export class DatabaseStorage implements IStorage {
     await this.addItemIngredients(item9.id, [findIngredient("Shrimp"), findIngredient("Tofu"), findIngredient("Rice")]);
     await this.createItemPhoto({ menuItemId: item9.id, imageUrl: "/images/dishes/pad-thai.jpg", isCover: 1 });
     await this.assignItemToDaySlot(daySlot3_1.id, item9.id);
+    await this.assignItemToDaySlot(daySlot3_3.id, item9.id);
+    await this.assignItemToDaySlot(daySlot3_5.id, item9.id);
 
     const item10 = await this.createMenuItem({
       chefId: chef3.id,
@@ -1029,8 +1186,8 @@ export class DatabaseStorage implements IStorage {
     await this.addItemAllergens(item10.id, [findAllergen("Soy")]);
     await this.addItemIngredients(item10.id, [findIngredient("Chicken"), findIngredient("Coconut Milk"), findIngredient("Rice"), findIngredient("Broccoli")]);
     await this.createItemPhoto({ menuItemId: item10.id, imageUrl: "/images/dishes/green-curry.jpg", isCover: 1 });
-    await this.assignItemToDaySlot(daySlot3_1.id, item10.id);
     await this.assignItemToDaySlot(daySlot3_2.id, item10.id);
+    await this.assignItemToDaySlot(daySlot3_4.id, item10.id);
 
     const item11 = await this.createMenuItem({
       chefId: chef3.id,
@@ -1042,7 +1199,8 @@ export class DatabaseStorage implements IStorage {
     await this.addItemAllergens(item11.id, [findAllergen("Wheat"), findAllergen("Soy")]);
     await this.addItemIngredients(item11.id, [findIngredient("Carrots")]);
     await this.createItemPhoto({ menuItemId: item11.id, imageUrl: "/images/dishes/spring-rolls.jpg", isCover: 1 });
-    await this.assignItemToDaySlot(daySlot3_2.id, item11.id);
+    await this.assignItemToDaySlot(daySlot3_3.id, item11.id);
+    await this.assignItemToDaySlot(daySlot3_5.id, item11.id);
 
     const item12 = await this.createMenuItem({
       chefId: chef3.id,
@@ -1054,7 +1212,216 @@ export class DatabaseStorage implements IStorage {
     await this.addItemIngredients(item12.id, [findIngredient("Tofu"), findIngredient("Quinoa"), findIngredient("Broccoli"), findIngredient("Carrots")]);
     await this.createItemPhoto({ menuItemId: item12.id, imageUrl: "/images/dishes/miso-tofu.jpg", isCover: 1 });
     await this.assignItemToDaySlot(daySlot3_1.id, item12.id);
-    await this.assignItemToDaySlot(daySlot3_2.id, item12.id);
+    await this.assignItemToDaySlot(daySlot3_4.id, item12.id);
+
+    // Chef 4 (Luna) items - Vegan
+    const item13 = await this.createMenuItem({
+      chefId: chef4.id,
+      title: "Quinoa Buddha Bowl",
+      description: "Roasted sweet potato, avocado, chickpeas, kale, and tahini dressing over fluffy quinoa. 100% plant-based.",
+    });
+    await this.createServingOption({ menuItemId: item13.id, servingSize: 1, label: "1 bowl", price: 15.99, isDefault: 1 });
+    await this.addItemAllergens(item13.id, [findAllergen("Sesame")]);
+    await this.addItemIngredients(item13.id, [findIngredient("Quinoa"), findIngredient("Kale"), findIngredient("Olive Oil")]);
+    await this.assignItemToDaySlot(daySlot4_1.id, item13.id);
+    await this.assignItemToDaySlot(daySlot4_2.id, item13.id);
+    await this.assignItemToDaySlot(daySlot4_3.id, item13.id);
+
+    const item14 = await this.createMenuItem({
+      chefId: chef4.id,
+      title: "Jackfruit Tacos",
+      description: "Smoky pulled jackfruit with pickled red onion, cilantro lime crema (cashew-based), and fresh salsa on corn tortillas.",
+    });
+    await this.createServingOption({ menuItemId: item14.id, servingSize: 1, label: "3 tacos", price: 14.99, isDefault: 1 });
+    await this.createServingOption({ menuItemId: item14.id, servingSize: 2, label: "6 tacos", price: 26.99, isDefault: 0 });
+    await this.addItemAllergens(item14.id, [findAllergen("Tree Nuts")]);
+    await this.addItemIngredients(item14.id, [findIngredient("Onions"), findIngredient("Cilantro"), findIngredient("Cashews")]);
+    await this.assignItemToDaySlot(daySlot4_1.id, item14.id);
+    await this.assignItemToDaySlot(daySlot4_2.id, item14.id);
+    await this.assignItemToDaySlot(daySlot4_3.id, item14.id);
+
+    // Chef 5 (Kenji) items - Japanese
+    const item15 = await this.createMenuItem({
+      chefId: chef5.id,
+      title: "Tonkotsu Ramen",
+      description: "Rich, creamy pork bone broth simmered 12 hours, with chashu pork, soft-boiled egg, nori, and fresh noodles.",
+    });
+    await this.createServingOption({ menuItemId: item15.id, servingSize: 1, label: "1 bowl", price: 18.99, isDefault: 1 });
+    await this.addItemAllergens(item15.id, [findAllergen("Wheat"), findAllergen("Eggs"), findAllergen("Soy")]);
+    await this.addItemIngredients(item15.id, [findIngredient("Pork"), findIngredient("Eggs"), findIngredient("Noodles"), findIngredient("Soy Sauce")]);
+    await this.assignItemToDaySlot(daySlot5_1.id, item15.id);
+    await this.assignItemToDaySlot(daySlot5_2.id, item15.id);
+    await this.assignItemToDaySlot(daySlot5_3.id, item15.id);
+
+    const item16 = await this.createMenuItem({
+      chefId: chef5.id,
+      title: "Chirashi Sushi Bowl",
+      description: "Assorted fresh sashimi over seasoned sushi rice with pickled ginger, wasabi, and soy sauce.",
+    });
+    await this.createServingOption({ menuItemId: item16.id, servingSize: 1, label: "1 bowl", price: 22.99, isDefault: 1 });
+    await this.addItemAllergens(item16.id, [findAllergen("Fish"), findAllergen("Soy"), findAllergen("Sesame")]);
+    await this.addItemIngredients(item16.id, [findIngredient("Salmon"), findIngredient("Tuna"), findIngredient("Rice"), findIngredient("Soy Sauce")]);
+    await this.assignItemToDaySlot(daySlot5_1.id, item16.id);
+    await this.assignItemToDaySlot(daySlot5_2.id, item16.id);
+    await this.assignItemToDaySlot(daySlot5_3.id, item16.id);
+
+    // Chef 6 (Sophie) items - Baked Goods
+    const item17 = await this.createMenuItem({
+      chefId: chef6.id,
+      title: "Butter Croissant Box",
+      description: "Flaky, golden croissants made with French butter. Baked fresh the morning of your order.",
+    });
+    await this.createServingOption({ menuItemId: item17.id, servingSize: 4, label: "Box of 4", price: 12.99, isDefault: 1 });
+    await this.createServingOption({ menuItemId: item17.id, servingSize: 8, label: "Box of 8", price: 22.99, isDefault: 0 });
+    await this.addItemAllergens(item17.id, [findAllergen("Wheat"), findAllergen("Milk"), findAllergen("Eggs")]);
+    await this.addItemIngredients(item17.id, [findIngredient("Butter"), findIngredient("Flour"), findIngredient("Eggs")]);
+    await this.assignItemToDaySlot(daySlot6_1.id, item17.id);
+    await this.assignItemToDaySlot(daySlot6_2.id, item17.id);
+    await this.assignItemToDaySlot(daySlot6_3.id, item17.id);
+
+    const item18 = await this.createMenuItem({
+      chefId: chef6.id,
+      title: "Mixed Berry Tart",
+      description: "Buttery shortcrust pastry filled with vanilla pastry cream and topped with fresh seasonal berries.",
+    });
+    await this.createServingOption({ menuItemId: item18.id, servingSize: 1, label: "1 slice", price: 8.99, isDefault: 1 });
+    await this.createServingOption({ menuItemId: item18.id, servingSize: 8, label: "Whole tart (8 slices)", price: 44.99, isDefault: 0 });
+    await this.addItemAllergens(item18.id, [findAllergen("Wheat"), findAllergen("Milk"), findAllergen("Eggs")]);
+    await this.addItemIngredients(item18.id, [findIngredient("Butter"), findIngredient("Flour"), findIngredient("Cream"), findIngredient("Eggs")]);
+    await this.assignItemToDaySlot(daySlot6_1.id, item18.id);
+    await this.assignItemToDaySlot(daySlot6_2.id, item18.id);
+    await this.assignItemToDaySlot(daySlot6_3.id, item18.id);
+
+    // Chef 7 (Marcus) items - BBQ
+    const item19 = await this.createMenuItem({
+      chefId: chef7.id,
+      title: "Smoked Brisket Plate",
+      description: "14-hour smoked beef brisket with house-made BBQ sauce, coleslaw, cornbread, and baked beans.",
+    });
+    await this.createServingOption({ menuItemId: item19.id, servingSize: 1, label: "1 plate", price: 22.99, isDefault: 1 });
+    await this.createServingOption({ menuItemId: item19.id, servingSize: 4, label: "Family platter (4 servings)", price: 79.99, isDefault: 0 });
+    await this.addItemIngredients(item19.id, [findIngredient("Beef"), findIngredient("Corn")]);
+    await this.assignItemToDaySlot(daySlot7_1.id, item19.id);
+    await this.assignItemToDaySlot(daySlot7_2.id, item19.id);
+    await this.assignItemToDaySlot(daySlot7_3.id, item19.id);
+
+    const item20 = await this.createMenuItem({
+      chefId: chef7.id,
+      title: "Pulled Pork Sandwich",
+      description: "Slow-smoked pulled pork on a brioche bun with tangy vinegar slaw and pickles.",
+    });
+    await this.createServingOption({ menuItemId: item20.id, servingSize: 1, label: "1 sandwich", price: 14.99, isDefault: 1 });
+    await this.createServingOption({ menuItemId: item20.id, servingSize: 2, label: "2 sandwiches", price: 26.99, isDefault: 0 });
+    await this.addItemAllergens(item20.id, [findAllergen("Wheat")]);
+    await this.addItemIngredients(item20.id, [findIngredient("Pork"), findIngredient("Bread")]);
+    await this.assignItemToDaySlot(daySlot7_1.id, item20.id);
+    await this.assignItemToDaySlot(daySlot7_2.id, item20.id);
+    await this.assignItemToDaySlot(daySlot7_3.id, item20.id);
+
+    // Chef 8 (Denise) items - Soul Food
+    const item21 = await this.createMenuItem({
+      chefId: chef8.id,
+      title: "Southern Fried Chicken",
+      description: "Buttermilk-brined, crispy fried chicken with honey-hot sauce drizzle. Served with collard greens and cornbread.",
+    });
+    await this.createServingOption({ menuItemId: item21.id, servingSize: 1, label: "2 piece dinner", price: 18.99, isDefault: 1 });
+    await this.createServingOption({ menuItemId: item21.id, servingSize: 2, label: "4 piece dinner", price: 32.99, isDefault: 0 });
+    await this.addItemAllergens(item21.id, [findAllergen("Milk"), findAllergen("Wheat"), findAllergen("Eggs")]);
+    await this.addItemIngredients(item21.id, [findIngredient("Chicken"), findIngredient("Butter"), findIngredient("Flour")]);
+    await this.assignItemToDaySlot(daySlot8_1.id, item21.id);
+    await this.assignItemToDaySlot(daySlot8_2.id, item21.id);
+    await this.assignItemToDaySlot(daySlot8_3.id, item21.id);
+
+    const item22 = await this.createMenuItem({
+      chefId: chef8.id,
+      title: "Mac & Cheese",
+      description: "Creamy three-cheese baked macaroni with a crispy breadcrumb topping. The ultimate comfort side.",
+    });
+    await this.createServingOption({ menuItemId: item22.id, servingSize: 1, label: "Side portion", price: 12.99, isDefault: 1 });
+    await this.createServingOption({ menuItemId: item22.id, servingSize: 4, label: "Family size", price: 22.99, isDefault: 0 });
+    await this.addItemAllergens(item22.id, [findAllergen("Milk"), findAllergen("Wheat")]);
+    await this.addItemIngredients(item22.id, [findIngredient("Pasta"), findIngredient("Cheese"), findIngredient("Butter"), findIngredient("Cream")]);
+    await this.assignItemToDaySlot(daySlot8_1.id, item22.id);
+    await this.assignItemToDaySlot(daySlot8_2.id, item22.id);
+    await this.assignItemToDaySlot(daySlot8_3.id, item22.id);
+
+    // Chef 9 (Nadine) items - Caribbean
+    const item23 = await this.createMenuItem({
+      chefId: chef9.id,
+      title: "Jerk Chicken Plate",
+      description: "Marinated and grilled jerk chicken with rice and peas, fried plantains, and festival bread.",
+    });
+    await this.createServingOption({ menuItemId: item23.id, servingSize: 1, label: "1 plate", price: 17.99, isDefault: 1 });
+    await this.createServingOption({ menuItemId: item23.id, servingSize: 2, label: "2 plates", price: 32.99, isDefault: 0 });
+    await this.addItemIngredients(item23.id, [findIngredient("Chicken"), findIngredient("Rice"), findIngredient("Garlic"), findIngredient("Thyme")]);
+    await this.assignItemToDaySlot(daySlot9_1.id, item23.id);
+    await this.assignItemToDaySlot(daySlot9_2.id, item23.id);
+    await this.assignItemToDaySlot(daySlot9_3.id, item23.id);
+
+    const item24 = await this.createMenuItem({
+      chefId: chef9.id,
+      title: "Oxtail Stew",
+      description: "Slow-braised oxtail in a rich, savory gravy with butter beans, served over white rice.",
+    });
+    await this.createServingOption({ menuItemId: item24.id, servingSize: 1, label: "1 serving", price: 24.99, isDefault: 1 });
+    await this.addItemIngredients(item24.id, [findIngredient("Beef"), findIngredient("Garlic"), findIngredient("Onions"), findIngredient("Rice"), findIngredient("Thyme")]);
+    await this.assignItemToDaySlot(daySlot9_1.id, item24.id);
+    await this.assignItemToDaySlot(daySlot9_2.id, item24.id);
+    await this.assignItemToDaySlot(daySlot9_3.id, item24.id);
+
+    // Chef 10 (Bobby) items - Comfort Food
+    const item25 = await this.createMenuItem({
+      chefId: chef10.id,
+      title: "Classic Cheeseburger",
+      description: "Double smash patty with American cheese, special sauce, lettuce, tomato, and pickles on a toasted bun.",
+    });
+    await this.createServingOption({ menuItemId: item25.id, servingSize: 1, label: "1 burger", price: 13.99, isDefault: 1 });
+    await this.createServingOption({ menuItemId: item25.id, servingSize: 2, label: "2 burgers", price: 24.99, isDefault: 0 });
+    await this.addItemAllergens(item25.id, [findAllergen("Milk"), findAllergen("Wheat")]);
+    await this.addItemIngredients(item25.id, [findIngredient("Beef"), findIngredient("Cheese"), findIngredient("Bread"), findIngredient("Lettuce"), findIngredient("Tomatoes")]);
+    await this.assignItemToDaySlot(daySlot10_1.id, item25.id);
+    await this.assignItemToDaySlot(daySlot10_2.id, item25.id);
+    await this.assignItemToDaySlot(daySlot10_3.id, item25.id);
+
+    const item26 = await this.createMenuItem({
+      chefId: chef10.id,
+      title: "Chicken Pot Pie",
+      description: "Flaky butter crust filled with tender chicken, peas, carrots, and creamy gravy. Baked to golden perfection.",
+    });
+    await this.createServingOption({ menuItemId: item26.id, servingSize: 1, label: "Individual pie", price: 16.99, isDefault: 1 });
+    await this.createServingOption({ menuItemId: item26.id, servingSize: 4, label: "Family pie (4 servings)", price: 49.99, isDefault: 0 });
+    await this.addItemAllergens(item26.id, [findAllergen("Milk"), findAllergen("Wheat"), findAllergen("Eggs")]);
+    await this.addItemIngredients(item26.id, [findIngredient("Chicken"), findIngredient("Butter"), findIngredient("Flour"), findIngredient("Peas"), findIngredient("Carrots"), findIngredient("Cream")]);
+    await this.assignItemToDaySlot(daySlot10_1.id, item26.id);
+    await this.assignItemToDaySlot(daySlot10_2.id, item26.id);
+    await this.assignItemToDaySlot(daySlot10_3.id, item26.id);
+
+    // Chef 11 (Priya) items - Indian
+    const item27 = await this.createMenuItem({
+      chefId: chef11.id,
+      title: "Butter Chicken",
+      description: "Tender chicken in a rich, creamy tomato-butter sauce with aromatic spices. Served with basmati rice and naan.",
+    });
+    await this.createServingOption({ menuItemId: item27.id, servingSize: 1, label: "1 serving with rice & naan", price: 17.99, isDefault: 1 });
+    await this.createServingOption({ menuItemId: item27.id, servingSize: 4, label: "Family size (4 servings)", price: 59.99, isDefault: 0 });
+    await this.addItemAllergens(item27.id, [findAllergen("Milk"), findAllergen("Wheat")]);
+    await this.addItemIngredients(item27.id, [findIngredient("Chicken"), findIngredient("Butter"), findIngredient("Cream"), findIngredient("Tomatoes"), findIngredient("Rice"), findIngredient("Garlic"), findIngredient("Ginger")]);
+    await this.assignItemToDaySlot(daySlot11_1.id, item27.id);
+    await this.assignItemToDaySlot(daySlot11_2.id, item27.id);
+    await this.assignItemToDaySlot(daySlot11_3.id, item27.id);
+
+    const item28 = await this.createMenuItem({
+      chefId: chef11.id,
+      title: "Vegetable Samosa Platter",
+      description: "Crispy pastry pockets filled with spiced potatoes and peas, served with mint chutney and tamarind sauce.",
+    });
+    await this.createServingOption({ menuItemId: item28.id, servingSize: 6, label: "6 pieces", price: 10.99, isDefault: 1 });
+    await this.createServingOption({ menuItemId: item28.id, servingSize: 12, label: "12 pieces (party size)", price: 18.99, isDefault: 0 });
+    await this.addItemAllergens(item28.id, [findAllergen("Wheat")]);
+    await this.addItemIngredients(item28.id, [findIngredient("Potatoes"), findIngredient("Peas"), findIngredient("Flour"), findIngredient("Cumin"), findIngredient("Turmeric")]);
+    await this.assignItemToDaySlot(daySlot11_1.id, item28.id);
+    await this.assignItemToDaySlot(daySlot11_2.id, item28.id);
+    await this.assignItemToDaySlot(daySlot11_3.id, item28.id);
 
     // Add comprehensive ingredient-allergen mappings for auto-selection
     // DAIRY/MILK allergens
@@ -1143,6 +1510,188 @@ export class DatabaseStorage implements IStorage {
       const ingId = findIngredient(ing);
       if (ingId) await this.addIngredientAllergen(ingId, findAllergen("Celery"));
     }
+
+    // Seed orders for all chefs
+    // Chef 1 (Maria) orders
+    const order1 = await this.createOrder({
+      chefId: chef1.id,
+      buyerName: "Sarah Thompson",
+      buyerEmail: "sarah.t@email.com",
+      buyerPhone: "212-555-0142",
+      totalAmount: 46.98,
+      status: "pending",
+      fulfillmentMethod: "delivery",
+      deliveryAddress: "245 W 25th St, New York, NY 10001",
+      deliveryLat: 40.7448,
+      deliveryLong: -73.9946,
+      notes: "Please ring apartment 4B. No buzzer.",
+    });
+    await this.createOrderItems([
+      { orderId: order1.id, menuItemId: item1.id, quantity: 2, priceAtOrder: 16.99, itemTitle: "Chicken Enchiladas Verdes" },
+      { orderId: order1.id, menuItemId: item2.id, quantity: 1, priceAtOrder: 14.99, itemTitle: "Vegetarian Tamales" },
+    ]);
+
+    const order2 = await this.createOrder({
+      chefId: chef1.id,
+      buyerName: "James Wilson",
+      buyerEmail: "jwilson@email.com",
+      buyerPhone: "212-555-0198",
+      totalAmount: 34.99,
+      status: "confirmed",
+      fulfillmentMethod: "pickup",
+      notes: "Will pick up around 6pm",
+    });
+    await this.createOrderItems([
+      { orderId: order2.id, menuItemId: item3.id, quantity: 1, priceAtOrder: 34.99, itemTitle: "Carnitas Taco Platter" },
+    ]);
+
+    const order3 = await this.createOrder({
+      chefId: chef1.id,
+      buyerName: "Emily Chen",
+      buyerEmail: "emily.chen@email.com",
+      totalAmount: 29.99,
+      status: "completed",
+      fulfillmentMethod: "delivery",
+      deliveryAddress: "180 W 20th St, New York, NY 10011",
+      deliveryLat: 40.7416,
+      deliveryLong: -73.9965,
+    });
+    await this.createOrderItems([
+      { orderId: order3.id, menuItemId: item1.id, quantity: 1, priceAtOrder: 29.99, itemTitle: "Chicken Enchiladas Verdes" },
+    ]);
+
+    // Chef 2 (Antonio) orders
+    const order4 = await this.createOrder({
+      chefId: chef2.id,
+      buyerName: "Michael Park",
+      buyerEmail: "mpark@email.com",
+      buyerPhone: "212-555-0234",
+      totalAmount: 74.97,
+      status: "pending",
+      fulfillmentMethod: "delivery",
+      deliveryAddress: "312 E 9th St, New York, NY 10003",
+      deliveryLat: 40.7291,
+      deliveryLong: -73.9891,
+      notes: "Nut allergy - please double check ingredients",
+    });
+    await this.createOrderItems([
+      { orderId: order4.id, menuItemId: item4.id, quantity: 1, priceAtOrder: 24.99, itemTitle: "Homemade Lasagna" },
+      { orderId: order4.id, menuItemId: item5.id, quantity: 1, priceAtOrder: 32.99, itemTitle: "Fresh Fettuccine Alfredo" },
+      { orderId: order4.id, menuItemId: item6.id, quantity: 1, priceAtOrder: 19.99, itemTitle: "Chicken Parmesan" },
+    ]);
+
+    const order5 = await this.createOrder({
+      chefId: chef2.id,
+      buyerName: "Lisa Martinez",
+      buyerEmail: "lisa.m@email.com",
+      buyerPhone: "212-555-0311",
+      totalAmount: 94.98,
+      status: "confirmed",
+      fulfillmentMethod: "pickup",
+      notes: "Picking up for a dinner party. Need by 5:30pm.",
+    });
+    await this.createOrderItems([
+      { orderId: order5.id, menuItemId: item4.id, quantity: 1, priceAtOrder: 44.99, itemTitle: "Homemade Lasagna" },
+      { orderId: order5.id, menuItemId: item7.id, quantity: 1, priceAtOrder: 49.99, itemTitle: "Tiramisu" },
+    ]);
+
+    const order6 = await this.createOrder({
+      chefId: chef2.id,
+      buyerName: "David Kim",
+      buyerEmail: "dkim@email.com",
+      totalAmount: 19.99,
+      status: "preparing",
+      fulfillmentMethod: "pickup",
+    });
+    await this.createOrderItems([
+      { orderId: order6.id, menuItemId: item6.id, quantity: 1, priceAtOrder: 19.99, itemTitle: "Chicken Parmesan" },
+    ]);
+
+    const order7 = await this.createOrder({
+      chefId: chef2.id,
+      buyerName: "Rachel Green",
+      buyerEmail: "rachel.g@email.com",
+      totalAmount: 42.98,
+      status: "completed",
+      fulfillmentMethod: "delivery",
+      deliveryAddress: "88 E 10th St, New York, NY 10003",
+      deliveryLat: 40.7300,
+      deliveryLong: -73.9910,
+    });
+    await this.createOrderItems([
+      { orderId: order7.id, menuItemId: item5.id, quantity: 1, priceAtOrder: 32.99, itemTitle: "Fresh Fettuccine Alfredo" },
+      { orderId: order7.id, menuItemId: item7.id, quantity: 1, priceAtOrder: 9.99, itemTitle: "Tiramisu" },
+    ]);
+
+    // Chef 3 (Mei Lin) orders
+    const order8 = await this.createOrder({
+      chefId: chef3.id,
+      buyerName: "Alex Rivera",
+      buyerEmail: "alex.r@email.com",
+      buyerPhone: "212-555-0456",
+      totalAmount: 55.97,
+      status: "pending",
+      fulfillmentMethod: "delivery",
+      deliveryAddress: "150 Orchard St, New York, NY 10002",
+      deliveryLat: 40.7201,
+      deliveryLong: -73.9886,
+      notes: "Leave at door, apartment 2A",
+    });
+    await this.createOrderItems([
+      { orderId: order8.id, menuItemId: item8.id, quantity: 1, priceAtOrder: 21.99, itemTitle: "Teriyaki Salmon Bowl" },
+      { orderId: order8.id, menuItemId: item9.id, quantity: 1, priceAtOrder: 16.99, itemTitle: "Pad Thai" },
+      { orderId: order8.id, menuItemId: item10.id, quantity: 1, priceAtOrder: 17.99, itemTitle: "Thai Green Curry" },
+    ]);
+
+    const order9 = await this.createOrder({
+      chefId: chef3.id,
+      buyerName: "Priya Patel",
+      buyerEmail: "priya.p@email.com",
+      buyerPhone: "212-555-0523",
+      totalAmount: 37.97,
+      status: "confirmed",
+      fulfillmentMethod: "delivery",
+      deliveryAddress: "200 Allen St, New York, NY 10002",
+      deliveryLat: 40.7220,
+      deliveryLong: -73.9895,
+    });
+    await this.createOrderItems([
+      { orderId: order9.id, menuItemId: item10.id, quantity: 1, priceAtOrder: 17.99, itemTitle: "Thai Green Curry" },
+      { orderId: order9.id, menuItemId: item11.id, quantity: 1, priceAtOrder: 8.99, itemTitle: "Vegetable Spring Rolls" },
+      { orderId: order9.id, menuItemId: item12.id, quantity: 1, priceAtOrder: 15.99, itemTitle: "Miso Glazed Tofu Bowl" },
+    ]);
+
+    const order10 = await this.createOrder({
+      chefId: chef3.id,
+      buyerName: "Tom Bradley",
+      buyerEmail: "tbradley@email.com",
+      totalAmount: 30.98,
+      status: "pending",
+      fulfillmentMethod: "delivery",
+      deliveryAddress: "78 Rivington St, New York, NY 10002",
+      deliveryLat: 40.7198,
+      deliveryLong: -73.9903,
+      notes: "No peanuts please - severe allergy",
+    });
+    await this.createOrderItems([
+      { orderId: order10.id, menuItemId: item8.id, quantity: 1, priceAtOrder: 21.99, itemTitle: "Teriyaki Salmon Bowl" },
+      { orderId: order10.id, menuItemId: item11.id, quantity: 1, priceAtOrder: 8.99, itemTitle: "Vegetable Spring Rolls" },
+    ]);
+
+    const order11 = await this.createOrder({
+      chefId: chef3.id,
+      buyerName: "Nina Simmons",
+      buyerEmail: "nina.s@email.com",
+      totalAmount: 59.99,
+      status: "completed",
+      fulfillmentMethod: "delivery",
+      deliveryAddress: "55 Delancey St, New York, NY 10002",
+      deliveryLat: 40.7184,
+      deliveryLong: -73.9908,
+    });
+    await this.createOrderItems([
+      { orderId: order11.id, menuItemId: item10.id, quantity: 1, priceAtOrder: 59.99, itemTitle: "Thai Green Curry" },
+    ]);
 
     console.log("Database seeded successfully!");
   }

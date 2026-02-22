@@ -1,472 +1,992 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { motion, AnimatePresence } from "framer-motion";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { 
-  MapPin, 
-  ChefHat, 
+import { Skeleton } from "@/components/ui/skeleton";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Carousel,
+  CarouselContent,
+  CarouselItem,
+  CarouselNext,
+  CarouselPrevious,
+} from "@/components/ui/carousel";
+import {
+  MapPin,
+  ChefHat,
   Search,
-  Leaf,
-  ShieldCheck,
+  Star,
+  ShoppingBag,
   Heart,
+  Mail,
+  ArrowRight,
+  Locate,
+  Loader2,
   X,
-  UtensilsCrossed
+  UtensilsCrossed,
+  Calendar,
 } from "lucide-react";
+import { FaInstagram, FaXTwitter, FaFacebookF, FaTiktok } from "react-icons/fa6";
 import { Header } from "@/components/header";
-import { ChefCard } from "@/components/chef-card";
-import { AllergenFilter } from "@/components/allergen-filter";
-import { LocationModal } from "@/components/location-modal";
-import { useLocationStore } from "@/lib/location-store";
-import { useFavoritesStore } from "@/lib/favorites-store";
-import type { ChefProfileWithDaySlots, Allergen } from "@shared/schema";
+import { useLocationStore, getCoordinatesFromZip, getLocationNameFromZip } from "@/lib/location-store";
 import { getDistance } from "geolib";
+import type { ChefProfileWithDaySlots } from "@shared/schema";
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+const PLACEHOLDER_TEXTS = [
+  '"BBQ"',
+  '"Chef Maria"',
+  '"jollof rice"',
+  '"pasta"',
+  '"enchiladas"',
+  '"salmon"',
+];
+
+// Mock ratings since the DB schema doesn't have ratings yet
+const MOCK_RATINGS: Record<number, { rating: number; reviewCount: number }> = {};
+function getRating(chefId: number) {
+  if (!MOCK_RATINGS[chefId]) {
+    // Deterministic pseudo-random from chefId
+    const seed = ((chefId * 2654435761) >>> 0) / 4294967296;
+    MOCK_RATINGS[chefId] = {
+      rating: Math.round((4.0 + seed * 1.0) * 10) / 10,
+      reviewCount: Math.floor(8 + seed * 342),
+    };
+  }
+  return MOCK_RATINGS[chefId];
+}
+
+// ─── Component ───────────────────────────────────────────────────────────────
 
 export default function Home() {
-  const [locationModalOpen, setLocationModalOpen] = useState(false);
-  const [excludedAllergens, setExcludedAllergens] = useState<number[]>([]);
-  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const { zipCode, lat, lng } = useLocationStore();
-  const { favoriteChefIds } = useFavoritesStore();
+  const [activeCuisine, setActiveCuisine] = useState("All");
+  const [sortBy, setSortBy] = useState("nearest");
+  const [newsletterEmail, setNewsletterEmail] = useState("");
+  const [newsletterSubmitted, setNewsletterSubmitted] = useState(false);
+  const [placeholderIndex, setPlaceholderIndex] = useState(0);
+  const [manualLocationInput, setManualLocationInput] = useState("");
+  const [showNoChefs, setShowNoChefs] = useState(false);
 
-  useEffect(() => {
-    if (!zipCode) {
-      const timer = setTimeout(() => setLocationModalOpen(true), 500);
-      return () => clearTimeout(timer);
-    }
-  }, [zipCode]);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const cuisineScrollRef = useRef<HTMLDivElement>(null);
 
-  const { data: chefs, isLoading: chefsLoading } = useQuery<ChefProfileWithDaySlots[]>({
+  const {
+    zipCode, lat, lng, locationName, geoStatus,
+    setLocation, setLocationFromCoords, setGeoStatus, clearLocation,
+  } = useLocationStore();
+
+  // ── Fetch real chef data from API ──
+  const { data: apiChefs, isLoading } = useQuery<ChefProfileWithDaySlots[]>({
     queryKey: ["/api/chefs"],
   });
 
-  const { data: allergens, isLoading: allergensLoading } = useQuery<Allergen[]>({
-    queryKey: ["/api/allergens"],
-  });
-
-  const searchLower = searchQuery.toLowerCase().trim();
-
-  const filteredChefs = useMemo(() => {
-    if (!chefs) return [];
-
-    let result = chefs.map((chef) => {
+  // Attach distance to each chef
+  const chefsWithDistance = useMemo(() => {
+    if (!apiChefs) return [];
+    return apiChefs.map((chef) => {
       if (lat && lng) {
-        const distance = getDistance(
+        const dist = getDistance(
           { latitude: lat, longitude: lng },
           { latitude: chef.locationLat, longitude: chef.locationLong }
         );
-        const distanceMiles = distance / 1609.34;
-        return { ...chef, distance: distanceMiles };
+        return { ...chef, distance: dist / 1609.34 };
       }
       return chef;
     });
+  }, [apiChefs, lat, lng]);
 
-    if (lat && lng) {
-      result = result.filter((chef) => {
-        return (chef.distance || 0) <= chef.serviceRadius;
-      });
+  // ── Dynamic cuisine filters from real data ──
+  const cuisineFilters = useMemo(() => {
+    const tags = new Set<string>();
+    chefsWithDistance.forEach((c) => c.cuisineTags?.forEach((t) => tags.add(t)));
+    return ["All", ...Array.from(tags).sort()];
+  }, [chefsWithDistance]);
+
+  // Cycle placeholder text
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setPlaceholderIndex((i) => (i + 1) % PLACEHOLDER_TEXTS.length);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Auto-detect location on mount
+  useEffect(() => {
+    if (zipCode || geoStatus !== "idle") return;
+    if (!navigator.geolocation) return;
+
+    setGeoStatus("requesting");
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        const name = reverseGeocode(latitude, longitude);
+        setLocationFromCoords(latitude, longitude, name);
+        setGeoStatus("granted");
+      },
+      () => {
+        setGeoStatus("denied");
+      },
+      { timeout: 8000, maximumAge: 300000 }
+    );
+  }, []);
+
+  const handleManualLocation = useCallback(() => {
+    const input = manualLocationInput.trim();
+    if (!input) return;
+
+    if (/^\d{5}$/.test(input)) {
+      const coords = getCoordinatesFromZip(input);
+      if (coords) {
+        const name = getLocationNameFromZip(input) || input;
+        setLocation(input, coords.lat, coords.lng, name);
+        if (input === "00000") setShowNoChefs(true);
+        else setShowNoChefs(false);
+      }
+    } else {
+      setLocationFromCoords(40.7128, -74.006, input);
+      setShowNoChefs(false);
+    }
+    setManualLocationInput("");
+  }, [manualLocationInput, setLocation, setLocationFromCoords]);
+
+  // ── Search: filter chefs AND extract matching dishes ──
+  const searchLower = searchQuery.toLowerCase().trim();
+
+  const { filteredChefs, dishResults } = useMemo(() => {
+    if (showNoChefs || zipCode === "00000") {
+      return { filteredChefs: [], dishResults: [] };
     }
 
-    if (showFavoritesOnly) {
-      result = result.filter((chef) => favoriteChefIds.includes(chef.id));
-    }
+    let chefs = [...chefsWithDistance];
 
-    if (excludedAllergens.length > 0) {
-      result = result.map((chef: any) => {
-        const filteredDaySlots = chef.daySlots?.map((slot: any) => ({
-          ...slot,
-          items: slot.items?.filter((item: any) => {
-            const itemAllergenIds = item.allergens?.map((a: any) => a.id) || [];
-            return !excludedAllergens.some((excluded) =>
-              itemAllergenIds.includes(excluded)
-            );
-          }),
-        }));
-        return { ...chef, daySlots: filteredDaySlots };
-      });
-
-      result = result.filter((chef: any) =>
-        chef.daySlots?.some((slot: any) => (slot.items?.length || 0) > 0)
+    // Cuisine filter
+    if (activeCuisine !== "All") {
+      chefs = chefs.filter((c) =>
+        c.cuisineTags?.some((t) => t.toLowerCase().includes(activeCuisine.toLowerCase()))
       );
     }
 
-    // Apply search filter
-    if (searchLower) {
-      result = result.map((chef: any) => {
-        // Check if chef name or cuisine tags match
-        const chefNameMatch = chef.name.toLowerCase().includes(searchLower);
-        const cuisineMatch = chef.cuisineTags?.some((tag: string) =>
-          tag.toLowerCase().includes(searchLower)
-        );
-
-        // Filter day slot items by search query
-        const filteredDaySlots = chef.daySlots?.map((slot: any) => ({
-          ...slot,
-          items: slot.items?.filter((item: any) =>
-            item.title.toLowerCase().includes(searchLower) ||
-            item.description?.toLowerCase().includes(searchLower) ||
-            item.ingredients?.some((ing: any) => 
-              ing.name.toLowerCase().includes(searchLower)
-            )
-          ),
-        }));
-
-        // If chef name or cuisine matches, keep all items
-        // Otherwise only keep matching items
-        if (chefNameMatch || cuisineMatch) {
-          return chef;
-        }
-
-        return { ...chef, daySlots: filteredDaySlots, matchedByDish: true };
-      });
-
-      // Filter out chefs with no matching content
-      result = result.filter((chef: any) => {
-        const chefNameMatch = chef.name.toLowerCase().includes(searchLower);
-        const cuisineMatch = chef.cuisineTags?.some((tag: string) =>
-          tag.toLowerCase().includes(searchLower)
-        );
-        const hasMatchingItems = chef.daySlots?.some((slot: any) => 
-          (slot.items?.length || 0) > 0
-        );
-
-        return chefNameMatch || cuisineMatch || hasMatchingItems;
-      });
-    }
-
-    result.sort((a, b) => (a.distance || 999) - (b.distance || 999));
-
-    return result;
-  }, [chefs, lat, lng, excludedAllergens, showFavoritesOnly, favoriteChefIds, searchLower]);
-
-  // Get matching menu items for search results display
-  const searchResults = useMemo(() => {
-    if (!searchLower || !filteredChefs.length) return null;
-
-    const matchingItems: Array<{
-      chef: any;
+    // Search filter — searches chefs AND dishes
+    interface DishResult {
+      chef: ChefProfileWithDaySlots & { distance?: number };
       item: any;
-      dayDate: Date | string | null;
-    }> = [];
+      dates: Date[];
+      coverPhoto?: string;
+      minPrice: number;
+      maxPrice: number;
+    }
+    const dishes: DishResult[] = [];
 
-    filteredChefs.forEach((chef: any) => {
-      chef.daySlots?.forEach((slot: any) => {
-        slot.items?.forEach((item: any) => {
-          const itemMatches = 
-            item.title.toLowerCase().includes(searchLower) ||
-            item.description?.toLowerCase().includes(searchLower) ||
-            item.ingredients?.some((ing: any) => 
+    if (searchLower) {
+      const matchedChefIds = new Set<number>();
+
+      chefs.forEach((chef) => {
+        const chefNameMatch = chef.name.toLowerCase().includes(searchLower);
+        const cuisineMatch = chef.cuisineTags?.some((t) =>
+          t.toLowerCase().includes(searchLower)
+        );
+
+        // Search through all day slots and their items
+        chef.daySlots?.forEach((slot) => {
+          slot.items?.forEach((item) => {
+            const titleMatch = item.title.toLowerCase().includes(searchLower);
+            const descMatch = item.description?.toLowerCase().includes(searchLower);
+            const ingredientMatch = item.ingredients?.some((ing) =>
               ing.name.toLowerCase().includes(searchLower)
             );
-          
-          if (itemMatches) {
-            matchingItems.push({
-              chef,
-              item,
-              dayDate: slot.date,
-            });
-          }
+
+            if (titleMatch || descMatch || ingredientMatch) {
+              matchedChefIds.add(chef.id);
+
+              // Collect all dates this item appears on
+              const existingDish = dishes.find(
+                (d) => d.chef.id === chef.id && d.item.id === item.id
+              );
+              const slotDate = slot.date ? new Date(slot.date) : null;
+
+              if (existingDish) {
+                if (slotDate) existingDish.dates.push(slotDate);
+              } else {
+                const servingOptions = item.servingOptions || item.assignedServingOptions?.map((a: any) => a.servingOption) || [];
+                const prices = servingOptions.map((o: any) => o.price).filter(Boolean);
+                dishes.push({
+                  chef,
+                  item,
+                  dates: slotDate ? [slotDate] : [],
+                  coverPhoto: item.coverPhoto || item.photos?.[0]?.imageUrl,
+                  minPrice: prices.length > 0 ? Math.min(...prices) : 0,
+                  maxPrice: prices.length > 0 ? Math.max(...prices) : 0,
+                });
+              }
+            }
+          });
         });
+
+        // If chef name/cuisine matched, include all their dishes
+        if (chefNameMatch || cuisineMatch) {
+          matchedChefIds.add(chef.id);
+        }
       });
-    });
 
-    return matchingItems.length > 0 ? matchingItems : null;
-  }, [filteredChefs, searchLower]);
+      chefs = chefs.filter((c) => matchedChefIds.has(c.id));
+    }
 
-  const toggleAllergen = (allergenId: number) => {
-    setExcludedAllergens((prev) =>
-      prev.includes(allergenId)
-        ? prev.filter((id) => id !== allergenId)
-        : [...prev, allergenId]
-    );
+    // Sort
+    switch (sortBy) {
+      case "nearest":
+        chefs.sort((a, b) => (a.distance ?? 999) - (b.distance ?? 999));
+        break;
+      case "highest": {
+        chefs.sort((a, b) => getRating(b.id).rating - getRating(a.id).rating);
+        break;
+      }
+      case "newest": {
+        const toTime = (d: Date | string | null | undefined) =>
+          d ? new Date(d).getTime() : 0;
+        chefs.sort((a, b) => toTime(b.createdAt) - toTime(a.createdAt));
+        break;
+      }
+    }
+
+    return { filteredChefs: chefs, dishResults: dishes };
+  }, [chefsWithDistance, searchLower, activeCuisine, sortBy, showNoChefs, zipCode]);
+
+  const featuredChefs = useMemo(
+    () => chefsWithDistance.slice(0, 6),
+    [chefsWithDistance]
+  );
+
+  const isNoChefs = showNoChefs || zipCode === "00000";
+  const hasLocation = !!locationName;
+
+  const handleNewsletterSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newsletterEmail.trim()) return;
+    setNewsletterSubmitted(true);
   };
 
   return (
     <div className="min-h-screen bg-background">
-      <Header />
-      
-      <div className="relative bg-gradient-to-br from-primary/10 via-accent/5 to-background border-b">
-        <div className="container mx-auto px-4 py-12 md:py-16">
-          <div className="max-w-2xl space-y-6">
-            <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold tracking-tight">
-              Discover{" "}
-              <span className="text-primary">Local Chefs</span>
-              <br />
-              In Your Neighborhood
+      <Header onSearchChange={setSearchQuery} searchQuery={searchQuery} />
+
+      {/* ── Hero Section ── */}
+      <section className="bg-gradient-to-br from-primary/10 via-accent/5 to-background">
+        <div className="container mx-auto px-4 pt-6 pb-4 md:pt-10 md:pb-6">
+          <div className="max-w-3xl mx-auto text-center space-y-3">
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight leading-tight">
+              Real food, made by <span className="text-primary">real people</span> near you
             </h1>
-            <p className="text-lg text-muted-foreground">
-              Fresh, homemade meals from passionate local chefs. Full transparency 
-              on every ingredient and allergen.
-            </p>
-            
-            <div className="flex flex-wrap gap-3 pt-2">
-              <Button
-                onClick={() => setLocationModalOpen(true)}
-                size="lg"
-                data-testid="button-set-location"
-              >
-                <MapPin className="h-4 w-4 mr-2" />
-                {zipCode ? `Change Location (${zipCode})` : "Set Your Location"}
-              </Button>
-            </div>
-          </div>
-        </div>
 
-        <div className="absolute bottom-0 right-0 w-1/3 h-full opacity-10 pointer-events-none hidden lg:block">
-          <ChefHat className="w-full h-full text-primary" />
-        </div>
-      </div>
+            {/* ── Smart Search Bar ── */}
+            <div className="max-w-2xl mx-auto space-y-2">
+              <div className="bg-card rounded-xl shadow-lg border p-2 sm:p-3">
+                <div className="flex flex-col sm:flex-row gap-2">
+                  {/* Location field */}
+                  <div className="relative flex-shrink-0 sm:w-52">
+                    {hasLocation ? (
+                      <div className="flex items-center h-11 px-3 rounded-lg bg-accent/50 border border-accent gap-2">
+                        <MapPin className="h-4 w-4 text-primary shrink-0" />
+                        <span className="text-sm font-medium truncate">{locationName}</span>
+                        <button
+                          onClick={() => { clearLocation(); setShowNoChefs(false); }}
+                          className="ml-auto text-muted-foreground hover:text-foreground shrink-0"
+                          aria-label="Clear location"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1">
+                        <div className="relative flex-1">
+                          <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            placeholder="Zip code or city"
+                            value={manualLocationInput}
+                            onChange={(e) => setManualLocationInput(e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && handleManualLocation()}
+                            className="pl-9 h-11"
+                            aria-label="Enter your location"
+                          />
+                        </div>
+                        {geoStatus === "requesting" ? (
+                          <Button variant="ghost" size="icon" className="h-11 w-11 shrink-0" disabled>
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-11 w-11 shrink-0"
+                            onClick={() => {
+                              if (!navigator.geolocation) return;
+                              setGeoStatus("requesting");
+                              navigator.geolocation.getCurrentPosition(
+                                (pos) => {
+                                  const name = reverseGeocode(pos.coords.latitude, pos.coords.longitude);
+                                  setLocationFromCoords(pos.coords.latitude, pos.coords.longitude, name);
+                                  setGeoStatus("granted");
+                                },
+                                () => setGeoStatus("denied"),
+                                { timeout: 8000 }
+                              );
+                            }}
+                            aria-label="Detect my location"
+                            title="Use my location"
+                          >
+                            <Locate className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
 
-      <div className="container mx-auto px-4 py-8">
-        <div className="grid lg:grid-cols-[280px_1fr] gap-8">
-          <aside className="space-y-6">
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Search className="h-4 w-4" />
-                  Search & Filters
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search chefs, cuisines, dishes..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-9 pr-9"
-                    data-testid="input-search"
-                  />
-                  {searchQuery && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="absolute right-1 top-1/2 -translate-y-1/2 px-2"
-                      onClick={() => setSearchQuery("")}
-                      data-testid="button-clear-search"
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  )}
+                  {/* Search field */}
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      ref={searchInputRef}
+                      placeholder={`Search for ${PLACEHOLDER_TEXTS[placeholderIndex]}...`}
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="pl-9 pr-9 h-11"
+                      aria-label="Search for chefs, cuisines, or dishes"
+                    />
+                    {searchQuery && (
+                      <button
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        onClick={() => setSearchQuery("")}
+                        aria-label="Clear search"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
                 </div>
 
-                <Button
-                  variant={showFavoritesOnly ? "default" : "outline"}
-                  size="sm"
-                  className="w-full justify-start"
-                  onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
-                  data-testid="button-favorites-filter"
-                >
-                  <Heart className={`h-4 w-4 mr-2 ${showFavoritesOnly ? "fill-current" : ""}`} />
-                  {showFavoritesOnly ? "Showing Favorites" : "Show Favorites Only"}
-                </Button>
-
-                {allergens && allergens.length > 0 && (
-                  <AllergenFilter
-                    allergens={allergens}
-                    excludedAllergens={excludedAllergens}
-                    onToggleAllergen={toggleAllergen}
-                    onClearFilters={() => setExcludedAllergens([])}
-                  />
+                {geoStatus === "denied" && !hasLocation && (
+                  <p className="text-xs text-muted-foreground mt-2 px-1">
+                    Location access was denied. Enter a zip code or city above.
+                  </p>
                 )}
-              </CardContent>
-            </Card>
+              </div>
 
-            <Card className="hidden lg:block">
-              <CardContent className="pt-6 space-y-4">
-                <div className="flex items-start gap-3">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10">
-                    <Leaf className="h-4 w-4 text-primary" />
-                  </div>
-                  <div>
-                    <h4 className="font-medium text-sm">Fresh & Local</h4>
-                    <p className="text-xs text-muted-foreground">
-                      All meals made fresh by chefs in your area
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10">
-                    <ShieldCheck className="h-4 w-4 text-primary" />
-                  </div>
-                  <div>
-                    <h4 className="font-medium text-sm">Full Transparency</h4>
-                    <p className="text-xs text-muted-foreground">
-                      Every ingredient and allergen listed clearly
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </aside>
-
-          <main>
-            <div className="flex items-center justify-between gap-4 mb-6">
-              <div>
-                <h2 className="text-xl font-semibold">
-                  {searchQuery
-                    ? `Results for "${searchQuery}"`
-                    : zipCode
-                    ? "Chefs Near You"
-                    : "All Chefs"}
-                </h2>
-                <p className="text-sm text-muted-foreground">
-                  {searchResults
-                    ? `${searchResults.length} dish${searchResults.length !== 1 ? "es" : ""} found from ${filteredChefs.length} chef${filteredChefs.length !== 1 ? "s" : ""}`
-                    : `${filteredChefs.length} chef${filteredChefs.length !== 1 ? "s" : ""} available`}
-                  {excludedAllergens.length > 0 && " (filtered)"}
-                </p>
+              {/* Cuisine quick-filter pills */}
+              <div
+                ref={cuisineScrollRef}
+                className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide -mx-4 px-4 sm:-mx-0 sm:px-0"
+                role="tablist"
+                aria-label="Filter by cuisine"
+              >
+                {cuisineFilters.map((cuisine) => (
+                  <button
+                    key={cuisine}
+                    role="tab"
+                    aria-selected={activeCuisine === cuisine}
+                    onClick={() => setActiveCuisine(cuisine)}
+                    className={`
+                      whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-medium transition-all
+                      shrink-0 border
+                      ${activeCuisine === cuisine
+                        ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                        : "bg-card text-muted-foreground border-border hover:bg-accent hover:text-accent-foreground"
+                      }
+                    `}
+                  >
+                    {cuisine}
+                  </button>
+                ))}
               </div>
             </div>
 
-            {chefsLoading || allergensLoading ? (
-              <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-6">
+            {/* Demo toggle for no-chefs state */}
+            <div className="flex items-center justify-center gap-2">
+              <span className="text-xs text-muted-foreground">Demo:</span>
+              <button
+                onClick={() => setShowNoChefs(!showNoChefs)}
+                className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                  showNoChefs
+                    ? "bg-destructive/10 text-destructive border-destructive/30"
+                    : "text-muted-foreground border-border hover:bg-muted"
+                }`}
+              >
+                {showNoChefs ? "Showing: No chefs nearby" : 'Toggle "no chefs" view'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Chef Results or Newsletter ── */}
+      <section className="container mx-auto px-4 py-8 md:py-12">
+        <AnimatePresence mode="wait">
+          {isNoChefs ? (
+            <NoChefSection
+              key="no-chefs"
+              email={newsletterEmail}
+              setEmail={setNewsletterEmail}
+              submitted={newsletterSubmitted}
+              onSubmit={handleNewsletterSubmit}
+            />
+          ) : isLoading ? (
+            <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
                 {[1, 2, 3, 4, 5, 6].map((i) => (
                   <Card key={i}>
-                    <Skeleton className="h-36" />
+                    <Skeleton className="h-28" />
                     <CardContent className="p-4 space-y-3">
                       <div className="flex items-center gap-3">
-                        <Skeleton className="h-11 w-11 rounded-full" />
+                        <Skeleton className="h-14 w-14 rounded-full" />
                         <div className="flex-1 space-y-2">
-                          <Skeleton className="h-4 w-24" />
-                          <Skeleton className="h-3 w-16" />
+                          <Skeleton className="h-4 w-28" />
+                          <Skeleton className="h-3 w-20" />
                         </div>
                       </div>
                       <div className="flex gap-1.5">
                         <Skeleton className="h-5 w-16" />
                         <Skeleton className="h-5 w-14" />
                       </div>
+                      <Skeleton className="h-4 w-full" />
+                      <Skeleton className="h-9 w-full" />
                     </CardContent>
                   </Card>
                 ))}
               </div>
-            ) : filteredChefs.length === 0 ? (
-              <Card>
-                <CardContent className="py-16 text-center">
-                  <ChefHat className="h-16 w-16 mx-auto text-muted-foreground/30 mb-4" />
-                  <h3 className="text-lg font-medium mb-2">
-                    {searchQuery ? "No Results Found" : "No Chefs Found"}
-                  </h3>
-                  <p className="text-muted-foreground max-w-sm mx-auto">
-                    {searchQuery
-                      ? `No chefs or dishes match "${searchQuery}". Try a different search term.`
-                      : !zipCode
-                      ? "Set your location to find chefs near you."
-                      : showFavoritesOnly
-                      ? "You haven't favorited any chefs yet."
-                      : excludedAllergens.length > 0
-                      ? "Try adjusting your allergen filters to see more options."
-                      : "No chefs are currently delivering to your area."}
+            </motion.div>
+          ) : (
+            <motion.div
+              key="chef-grid"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            >
+              {/* ── Matching Dishes Section ── */}
+              {searchLower && dishResults.length > 0 && (
+                <div className="mb-10">
+                  <h2 className="text-xl sm:text-2xl font-semibold mb-1">
+                    Matching Dishes
+                  </h2>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    {dishResults.length} dish{dishResults.length !== 1 ? "es" : ""} found
+                    for "{searchQuery}"
                   </p>
-                  {searchQuery && (
-                    <Button
-                      onClick={() => setSearchQuery("")}
-                      className="mt-4"
-                      data-testid="button-clear-search-empty"
-                    >
-                      <X className="h-4 w-4 mr-2" />
-                      Clear Search
-                    </Button>
-                  )}
-                  {!zipCode && !searchQuery && (
-                    <Button
-                      onClick={() => setLocationModalOpen(true)}
-                      className="mt-4"
-                      data-testid="button-empty-set-location"
-                    >
-                      <MapPin className="h-4 w-4 mr-2" />
-                      Set Location
-                    </Button>
-                  )}
-                </CardContent>
-              </Card>
-            ) : searchResults ? (
-              <div className="space-y-6">
-                <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
-                  {searchResults.slice(0, 9).map((result, index) => {
-                    const coverPhoto = result.item.coverPhoto || (result.item.photos?.[0]?.imageUrl);
-                    const servingOptions = result.item.servingOptions || [];
-                    const prices = servingOptions.map((o: any) => o.price);
-                    const minPrice = prices.length > 0 ? Math.min(...prices) : 0;
-                    const maxPrice = prices.length > 0 ? Math.max(...prices) : 0;
-                    const priceDisplay = minPrice === maxPrice || prices.length <= 1
-                      ? `$${minPrice.toFixed(2)}`
-                      : `$${minPrice.toFixed(2)} - $${maxPrice.toFixed(2)}`;
-                    
-                    return (
-                    <Link key={`${result.chef.id}-${result.item.id}-${index}`} href={`/chef/${result.chef.slug}`}>
-                      <Card className="hover-elevate cursor-pointer transition-all duration-200" data-testid={`card-search-result-${result.item.id}`}>
-                        <CardContent className="p-4">
-                          <div className="flex gap-3">
-                            <div className="flex-shrink-0 w-16 h-16 rounded-md bg-gradient-to-br from-primary/20 to-accent/30 flex items-center justify-center overflow-hidden">
-                              {coverPhoto ? (
-                                <img
-                                  src={coverPhoto}
-                                  alt={result.item.title}
-                                  className="w-full h-full object-cover"
-                                  data-testid={`image-search-result-${result.item.id}`}
-                                />
-                              ) : (
-                                <UtensilsCrossed className="h-6 w-6 text-primary/50" />
-                              )}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <h4 className="font-medium text-sm truncate">{result.item.title}</h4>
-                              <p className="text-xs text-muted-foreground truncate mt-0.5">
-                                by {result.chef.name}
-                              </p>
-                              <div className="flex items-center justify-between gap-2 mt-2">
-                                <span className="text-sm font-semibold">
-                                  {priceDisplay}
-                                </span>
-                                {result.chef.distance !== undefined && (
-                                  <span className="text-xs text-muted-foreground">
-                                    {result.chef.distance.toFixed(1)} mi
-                                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {dishResults.slice(0, 9).map((dish, i) => (
+                      <Link key={`${dish.chef.id}-${dish.item.id}-${i}`} href={`/chef/${dish.chef.slug}`}>
+                        <Card className="group hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 cursor-pointer h-full">
+                          <CardContent className="p-4">
+                            <div className="flex gap-3">
+                              {/* Dish image */}
+                              <div className="flex-shrink-0 w-20 h-20 rounded-lg bg-gradient-to-br from-primary/20 to-accent/30 flex items-center justify-center overflow-hidden">
+                                {dish.coverPhoto ? (
+                                  <img
+                                    src={dish.coverPhoto}
+                                    alt={dish.item.title}
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  <UtensilsCrossed className="h-7 w-7 text-primary/40" />
+                                )}
+                              </div>
+
+                              <div className="flex-1 min-w-0">
+                                <h4 className="font-semibold text-sm truncate group-hover:text-primary transition-colors">
+                                  {dish.item.title}
+                                </h4>
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                  by {dish.chef.name}
+                                </p>
+
+                                {/* Price */}
+                                {dish.minPrice > 0 && (
+                                  <p className="text-sm font-semibold mt-1.5">
+                                    {dish.minPrice === dish.maxPrice
+                                      ? `$${dish.minPrice.toFixed(2)}`
+                                      : `$${dish.minPrice.toFixed(2)} – $${dish.maxPrice.toFixed(2)}`}
+                                  </p>
+                                )}
+
+                                {/* Available dates */}
+                                {dish.dates.length > 0 && (
+                                  <div className="flex items-center gap-1 mt-1.5 text-xs text-muted-foreground">
+                                    <Calendar className="h-3 w-3" />
+                                    <span>
+                                      {dish.dates
+                                        .sort((a, b) => a.getTime() - b.getTime())
+                                        .slice(0, 3)
+                                        .map((d) =>
+                                          d.toLocaleDateString("en-US", {
+                                            month: "short",
+                                            day: "numeric",
+                                          })
+                                        )
+                                        .join(", ")}
+                                      {dish.dates.length > 3 && ` +${dish.dates.length - 3} more`}
+                                    </span>
+                                  </div>
+                                )}
+
+                                {/* Distance */}
+                                {dish.chef.distance !== undefined && (
+                                  <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
+                                    <MapPin className="h-3 w-3" />
+                                    {dish.chef.distance.toFixed(1)} mi away
+                                  </div>
                                 )}
                               </div>
                             </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </Link>
-                    );
-                  })}
-                </div>
-                
-                {searchResults.length > 9 && (
-                  <p className="text-sm text-muted-foreground text-center">
-                    Showing 9 of {searchResults.length} matching dishes
-                  </p>
-                )}
-
-                <div className="border-t pt-6">
-                  <h3 className="text-lg font-semibold mb-4">Chefs with matching dishes</h3>
-                  <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-6">
-                    {filteredChefs.map((chef) => (
-                      <ChefCard key={chef.id} chef={chef} />
+                          </CardContent>
+                        </Card>
+                      </Link>
                     ))}
+                  </div>
+                  {dishResults.length > 9 && (
+                    <p className="text-sm text-muted-foreground text-center mt-3">
+                      Showing 9 of {dishResults.length} matching dishes
+                    </p>
+                  )}
+
+                  <div className="border-t mt-8 pt-6" />
+                </div>
+              )}
+
+              {/* Sort bar */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+                <div>
+                  <h2 className="text-xl sm:text-2xl font-semibold">
+                    {searchQuery
+                      ? `Chefs matching "${searchQuery}"`
+                      : activeCuisine !== "All"
+                        ? `${activeCuisine} Chefs`
+                        : "Chefs Near You"}
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    {filteredChefs.length} chef{filteredChefs.length !== 1 ? "s" : ""} available
+                  </p>
+                </div>
+
+                <Select value={sortBy} onValueChange={setSortBy}>
+                  <SelectTrigger className="w-[180px]" aria-label="Sort chefs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="nearest">Nearest first</SelectItem>
+                    <SelectItem value="highest">Highest rated</SelectItem>
+                    <SelectItem value="newest">Newest chefs</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Chef card grid */}
+              {filteredChefs.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+                  {filteredChefs.map((chef, i) => (
+                    <ChefCardHome key={chef.id} chef={chef} index={i} />
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-16">
+                  <UtensilsCrossed className="h-12 w-12 mx-auto text-muted-foreground/30 mb-4" />
+                  <h3 className="text-lg font-medium mb-2">No matches found</h3>
+                  <p className="text-muted-foreground text-sm">
+                    Try adjusting your search or filters.
+                  </p>
+                  <Button
+                    variant="outline"
+                    className="mt-4"
+                    onClick={() => {
+                      setSearchQuery("");
+                      setActiveCuisine("All");
+                    }}
+                  >
+                    Clear filters
+                  </Button>
+                </div>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </section>
+
+      {/* ── How It Works ── */}
+      <section className="bg-muted/50 border-y">
+        <div className="container mx-auto px-4 py-12 md:py-16">
+          <h2 className="text-2xl sm:text-3xl font-bold text-center mb-10">
+            How It Works
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-4xl mx-auto">
+            {[
+              {
+                icon: <Search className="h-7 w-7" />,
+                title: "Find a Chef",
+                desc: "Enter your location and browse local chefs and their menus",
+              },
+              {
+                icon: <ShoppingBag className="h-7 w-7" />,
+                title: "Place Your Order",
+                desc: "Choose your dishes and schedule a pickup or delivery",
+              },
+              {
+                icon: <Heart className="h-7 w-7" />,
+                title: "Enjoy Homemade",
+                desc: "Savor fresh, homemade food made with love by someone in your community",
+              },
+            ].map((step, i) => (
+              <motion.div
+                key={step.title}
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.4, delay: i * 0.15 }}
+                className="text-center space-y-3"
+              >
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  {step.icon}
+                </div>
+                <h3 className="font-semibold text-lg">{step.title}</h3>
+                <p className="text-muted-foreground text-sm leading-relaxed">
+                  {step.desc}
+                </p>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Featured Chefs Carousel ── */}
+      {!isNoChefs && featuredChefs.length > 0 && (
+        <section className="container mx-auto px-4 py-12 md:py-16">
+          <Carousel
+            opts={{ align: "start", loop: true }}
+            className="w-full"
+          >
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl sm:text-3xl font-bold">Featured Chefs</h2>
+              <div className="flex items-center gap-2">
+                <CarouselPrevious className="static translate-y-0 h-9 w-9" />
+                <CarouselNext className="static translate-y-0 h-9 w-9" />
+              </div>
+            </div>
+            <CarouselContent className="-ml-4">
+              {featuredChefs.map((chef) => (
+                <CarouselItem
+                  key={chef.id}
+                  className="pl-4 basis-full sm:basis-1/2 lg:basis-1/3 xl:basis-1/4"
+                >
+                  <div className="h-full">
+                    <ChefCardHome chef={chef} index={0} />
+                  </div>
+                </CarouselItem>
+              ))}
+            </CarouselContent>
+          </Carousel>
+        </section>
+      )}
+
+      {/* ── Footer ── */}
+      <footer className="bg-card border-t">
+        <div className="container mx-auto px-4 py-12">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+            <div className="md:col-span-1 space-y-4">
+              <Link href="/">
+                <div className="flex items-center gap-2 cursor-pointer">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary">
+                    <ChefHat className="h-5 w-5 text-primary-foreground" />
+                  </div>
+                  <span className="text-xl font-bold tracking-tight">Kokkur</span>
+                </div>
+              </Link>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Connecting communities through the joy of homemade food.
+              </p>
+              <div className="flex gap-3">
+                {[
+                  { icon: <FaInstagram className="h-4 w-4" />, label: "Instagram" },
+                  { icon: <FaXTwitter className="h-4 w-4" />, label: "X" },
+                  { icon: <FaFacebookF className="h-4 w-4" />, label: "Facebook" },
+                  { icon: <FaTiktok className="h-4 w-4" />, label: "TikTok" },
+                ].map((social) => (
+                  <a
+                    key={social.label}
+                    href="#"
+                    className="flex h-9 w-9 items-center justify-center rounded-full bg-muted hover:bg-primary/10 hover:text-primary transition-colors"
+                    aria-label={social.label}
+                  >
+                    {social.icon}
+                  </a>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <h4 className="font-semibold text-sm">Company</h4>
+              <nav className="flex flex-col gap-2">
+                {["About", "For Chefs", "Careers"].map((link) => (
+                  <a key={link} href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                    {link}
+                  </a>
+                ))}
+              </nav>
+            </div>
+
+            <div className="space-y-3">
+              <h4 className="font-semibold text-sm">Support</h4>
+              <nav className="flex flex-col gap-2">
+                {["FAQ", "Contact", "Help Center"].map((link) => (
+                  <a key={link} href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                    {link}
+                  </a>
+                ))}
+              </nav>
+            </div>
+
+            <div className="space-y-3">
+              <h4 className="font-semibold text-sm">Legal</h4>
+              <nav className="flex flex-col gap-2">
+                {["Privacy Policy", "Terms of Service", "Cookie Policy"].map((link) => (
+                  <a key={link} href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                    {link}
+                  </a>
+                ))}
+              </nav>
+            </div>
+          </div>
+
+          <div className="border-t mt-8 pt-6 text-center text-sm text-muted-foreground">
+            &copy; 2025 Kokkur. All rights reserved.
+          </div>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+// ─── Chef Card Component ─────────────────────────────────────────────────────
+
+function ChefCardHome({ chef, index }: { chef: ChefProfileWithDaySlots & { distance?: number }; index: number }) {
+  const { rating, reviewCount } = getRating(chef.id);
+
+  // Count unique items across all day slots
+  const uniqueItemIds = new Set<number>();
+  chef.daySlots?.forEach((slot) => {
+    slot.items?.forEach((item) => uniqueItemIds.add(item.id));
+  });
+  const dishCount = uniqueItemIds.size;
+
+  // Get sample dish image
+  const sampleDishImage = chef.daySlots
+    ?.flatMap((s) => s.items || [])
+    .find((item) => item.coverPhoto)?.coverPhoto;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, delay: Math.min(index * 0.05, 0.3) }}
+      className="h-full"
+    >
+      <Link href={`/chef/${chef.slug}`}>
+        <Card className="group overflow-hidden hover:shadow-lg transition-all duration-300 hover:-translate-y-1 h-full cursor-pointer flex flex-col">
+          <CardContent className="p-0 flex flex-col flex-1">
+            {/* Card header with image or gradient */}
+            <div className="relative h-32 bg-gradient-to-br from-primary/20 via-primary/10 to-accent/20 overflow-hidden">
+              {sampleDishImage ? (
+                <img
+                  src={sampleDishImage}
+                  alt={`Dish from ${chef.name}`}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="absolute inset-0 flex items-center justify-center opacity-20">
+                  <ChefHat className="h-16 w-16 text-primary" />
+                </div>
+              )}
+
+              {/* Distance badge */}
+              {chef.distance !== undefined && (
+                <Badge
+                  variant="secondary"
+                  className="absolute top-3 right-3 bg-background/80 backdrop-blur-sm text-xs"
+                >
+                  <MapPin className="h-3 w-3 mr-1" />
+                  {chef.distance.toFixed(1)} mi
+                </Badge>
+              )}
+            </div>
+
+            <div className="p-4 space-y-3 flex flex-col flex-1">
+              {/* Avatar + name */}
+              <div className="flex items-center gap-3">
+                <Avatar className="h-11 w-11 shrink-0 ring-2 ring-background shadow-sm">
+                  <AvatarImage src={chef.profileImageUrl || undefined} alt={chef.name} />
+                  <AvatarFallback className="bg-primary/10 text-primary font-semibold text-sm">
+                    {chef.name.split(" ").map((n) => n[0]).join("").toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-semibold text-foreground truncate group-hover:text-primary transition-colors">
+                    {chef.name}
+                  </h3>
+                  <div className="flex items-center gap-1 text-sm">
+                    <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+                    <span className="font-medium">{rating}</span>
+                    <span className="text-muted-foreground">({reviewCount})</span>
                   </div>
                 </div>
               </div>
-            ) : (
-              <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-6">
-                {filteredChefs.map((chef) => (
-                  <ChefCard key={chef.id} chef={chef} />
-                ))}
+
+              {/* Cuisine tags */}
+              {chef.cuisineTags && chef.cuisineTags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {chef.cuisineTags.slice(0, 3).map((tag) => (
+                    <Badge key={tag} variant="outline" className="text-xs font-normal">
+                      {tag}
+                    </Badge>
+                  ))}
+                  {chef.cuisineTags.length > 3 && (
+                    <Badge variant="outline" className="text-xs font-normal">
+                      +{chef.cuisineTags.length - 3}
+                    </Badge>
+                  )}
+                </div>
+              )}
+
+              {/* Bio */}
+              {chef.bio && (
+                <p className="text-sm text-muted-foreground line-clamp-2 leading-relaxed flex-1">
+                  {chef.bio}
+                </p>
+              )}
+
+              {/* Dish count + CTA */}
+              <div className="flex items-center justify-between pt-1 mt-auto">
+                <span className="text-xs text-muted-foreground">
+                  {dishCount} {dishCount === 1 ? "dish" : "dishes"} available
+                </span>
+                <Button size="sm" className="h-8">
+                  View Menu
+                </Button>
               </div>
-            )}
-          </main>
+            </div>
+          </CardContent>
+        </Card>
+      </Link>
+    </motion.div>
+  );
+}
+
+// ─── No Chefs / Newsletter Section ───────────────────────────────────────────
+
+function NoChefSection({
+  email,
+  setEmail,
+  submitted,
+  onSubmit,
+}: {
+  email: string;
+  setEmail: (v: string) => void;
+  submitted: boolean;
+  onSubmit: (e: React.FormEvent) => void;
+}) {
+  return (
+    <motion.div
+      key="no-chefs"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      className="max-w-lg mx-auto text-center py-8 md:py-12"
+    >
+      <div className="mx-auto mb-6 flex h-24 w-24 items-center justify-center rounded-full bg-primary/10">
+        <div className="relative">
+          <ChefHat className="h-12 w-12 text-primary" />
+          <Heart className="absolute -bottom-1 -right-1 h-5 w-5 text-primary fill-primary" />
         </div>
       </div>
 
-      <LocationModal
-        open={locationModalOpen}
-        onOpenChange={setLocationModalOpen}
-      />
-    </div>
+      <h2 className="text-2xl font-bold mb-3">
+        We're not in your neighborhood yet — but we're on our way!
+      </h2>
+      <p className="text-muted-foreground mb-8 leading-relaxed">
+        Kokkur is growing every day. Drop your email below and we'll let you
+        know the moment chefs near you start cooking.
+      </p>
+
+      <AnimatePresence mode="wait">
+        {!submitted ? (
+          <motion.form
+            key="form"
+            initial={{ opacity: 1 }}
+            exit={{ opacity: 0, y: -10 }}
+            onSubmit={onSubmit}
+            className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto"
+          >
+            <div className="relative flex-1">
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                type="email"
+                placeholder="Your email address"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="pl-9 h-11"
+                required
+                aria-label="Email address for notifications"
+              />
+            </div>
+            <Button type="submit" className="h-11 px-6">
+              Notify Me
+            </Button>
+          </motion.form>
+        ) : (
+          <motion.div
+            key="success"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-primary/10 rounded-xl p-6"
+          >
+            <p className="text-lg font-semibold text-primary mb-1">
+              You're on the list! 🎉
+            </p>
+            <p className="text-sm text-muted-foreground">
+              We'll reach out as soon as chefs are available near you.
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <p className="text-sm text-muted-foreground mt-6">
+        Know a chef who should be on Kokkur?{" "}
+        <a href="#" className="text-primary hover:underline font-medium inline-flex items-center gap-1">
+          Tell them about us <ArrowRight className="h-3 w-3" />
+        </a>
+      </p>
+    </motion.div>
   );
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function reverseGeocode(lat: number, lng: number): string {
+  if (lat > 40.5 && lat < 41.0 && lng > -74.3 && lng < -73.7) return "New York, NY";
+  if (lat > 33.9 && lat < 34.2 && lng > -118.5 && lng < -118.1) return "Los Angeles, CA";
+  if (lat > 41.8 && lat < 42.0 && lng > -87.8 && lng < -87.5) return "Chicago, IL";
+  if (lat > 29.6 && lat < 30.0 && lng > -95.5 && lng < -95.2) return "Houston, TX";
+  if (lat > 30.2 && lat < 30.4 && lng > -97.8 && lng < -97.6) return "Austin, TX";
+  if (lat > 37.7 && lat < 37.9 && lng > -122.5 && lng < -122.3) return "San Francisco, CA";
+  if (lat > 47.5 && lat < 47.7 && lng > -122.4 && lng < -122.2) return "Seattle, WA";
+  if (lat > 25.7 && lat < 25.9 && lng > -80.3 && lng < -80.1) return "Miami, FL";
+  if (lat > 33.7 && lat < 33.9 && lng > -84.5 && lng < -84.3) return "Atlanta, GA";
+  if (lat > 39.9 && lat < 40.1 && lng > -75.2 && lng < -75.1) return "Philadelphia, PA";
+  return "Your Neighborhood";
 }

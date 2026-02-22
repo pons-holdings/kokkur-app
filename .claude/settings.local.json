@@ -39,7 +39,10 @@
       "Bash(lsof -ti :5000 2>/dev/null)",
       "Bash(fuser 5000/tcp 2>/dev/null)",
       "Bash(pkill -9 -f \"tsx.*server\" 2>/dev/null; pkill -9 -f \"node.*server/index\" 2>/dev/null; echo \"done\")",
-      "Bash(xargs kill -9)"
+      "Bash(xargs kill -9)",
+      "Bash(echo \"SELECT id, name, slug FROM chef_profiles ORDER BY id;\" | psql \"$DATABASE_URL\" 2>&1)",
+      "Bash(curl -s http://localhost:5000/api/chefs | python3 -c \"import sys,json; data=json.load\\(sys.stdin\\); print\\(f'{len\\(data\\)} chefs returned'\\); [print\\(f'  {c[\\\\\"name\\\\\"]} - {c[\\\\\"cuisineTags\\\\\"]} - {c[\\\\\"locationName\\\\\"]}'\\) for c in data]\")",
+      "Bash(curl -s http://localhost:5000/api/chefs | node -e \"\nconst chunks = [];\nprocess.stdin.on\\('data', d => chunks.push\\(d\\)\\);\nprocess.stdin.on\\('end', \\(\\) => {\n  const data = JSON.parse\\(Buffer.concat\\(chunks\\).toString\\(\\)\\);\n  console.log\\(data.length + ' chefs returned'\\);\n  data.forEach\\(c => {\n    const items = c.daySlots?.flatMap\\(s => s.items || []\\) || [];\n    console.log\\('  ' + c.name + ' | ' + \\(c.cuisineTags||[]\\).join\\(', '\\) + ' | ' + c.locationName + ' | ' + items.length + ' items'\\);\n  }\\);\n}\\);\n\")"
     ]
   }
 }

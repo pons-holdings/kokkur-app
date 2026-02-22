@@ -5,7 +5,11 @@ interface LocationState {
   zipCode: string | null;
   lat: number | null;
   lng: number | null;
-  setLocation: (zipCode: string, lat: number, lng: number) => void;
+  locationName: string | null;
+  geoStatus: "idle" | "requesting" | "granted" | "denied";
+  setLocation: (zipCode: string, lat: number, lng: number, name?: string) => void;
+  setLocationFromCoords: (lat: number, lng: number, name: string) => void;
+  setGeoStatus: (status: "idle" | "requesting" | "granted" | "denied") => void;
   clearLocation: () => void;
 }
 
@@ -43,20 +47,26 @@ const ZIP_CODE_COORDINATES: Record<string, { lat: number; lng: number; name: str
   "11231": { lat: 40.6795, lng: -74.0012, name: "Brooklyn, NY" },
   "11238": { lat: 40.6796, lng: -73.9660, name: "Brooklyn, NY" },
   "11249": { lat: 40.7002, lng: -73.9605, name: "Brooklyn, NY" },
+  "00000": { lat: 0, lng: 0, name: "Nowhere" },
 };
 
 export const getCoordinatesFromZip = (zipCode: string): { lat: number; lng: number } | null => {
   const coords = ZIP_CODE_COORDINATES[zipCode];
   if (coords) return { lat: coords.lat, lng: coords.lng };
-  
+
   const firstDigit = parseInt(zipCode[0]);
   if (zipCode.length === 5 && !isNaN(firstDigit)) {
     const baseLat = 40.7128 + (Math.random() - 0.5) * 0.1;
     const baseLng = -74.0060 + (Math.random() - 0.5) * 0.1;
     return { lat: baseLat, lng: baseLng };
   }
-  
+
   return null;
+};
+
+export const getLocationNameFromZip = (zipCode: string): string | null => {
+  const entry = ZIP_CODE_COORDINATES[zipCode];
+  return entry?.name ?? null;
 };
 
 export const useLocationStore = create<LocationState>()(
@@ -65,17 +75,46 @@ export const useLocationStore = create<LocationState>()(
       zipCode: null,
       lat: null,
       lng: null,
-      
-      setLocation: (zipCode: string, lat: number, lng: number) => {
-        set({ zipCode, lat, lng });
+      locationName: null,
+      geoStatus: "idle" as const,
+
+      setLocation: (zipCode: string, lat: number, lng: number, name?: string) => {
+        const locationName = name || getLocationNameFromZip(zipCode) || zipCode;
+        set({ zipCode, lat, lng, locationName });
       },
-      
+
+      setLocationFromCoords: (lat: number, lng: number, name: string) => {
+        set({ lat, lng, locationName: name, zipCode: name });
+      },
+
+      setGeoStatus: (status: "idle" | "requesting" | "granted" | "denied") => {
+        set({ geoStatus: status });
+      },
+
       clearLocation: () => {
-        set({ zipCode: null, lat: null, lng: null });
+        set({ zipCode: null, lat: null, lng: null, locationName: null, geoStatus: "idle" });
       },
     }),
     {
       name: "kokkur-location",
+      version: 1,
+      migrate: (persisted: any) => {
+        const looksLikeCoords = (v: unknown) =>
+          typeof v === "string" && v.includes(",") && /\d+\.\d+/.test(v);
+        if (looksLikeCoords(persisted?.locationName)) persisted.locationName = null;
+        if (looksLikeCoords(persisted?.zipCode)) {
+          persisted.zipCode = null;
+          persisted.lat = null;
+          persisted.lng = null;
+        }
+        return persisted;
+      },
+      partialize: (state) => ({
+        zipCode: state.zipCode,
+        lat: state.lat,
+        lng: state.lng,
+        locationName: state.locationName,
+      }),
     }
   )
 );

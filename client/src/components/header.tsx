@@ -1,27 +1,44 @@
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { 
-  ChefHat, 
-  ShoppingCart, 
-  MapPin, 
+import { Input } from "@/components/ui/input";
+import {
+  ChefHat,
+  ShoppingCart,
+  MapPin,
   Menu,
-  X
+  X,
+  Search,
 } from "lucide-react";
 import { useCartStore } from "@/lib/cart-store";
 import { useLocationStore } from "@/lib/location-store";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Sheet,
   SheetContent,
   SheetTrigger,
 } from "@/components/ui/sheet";
 
-export function Header() {
+interface HeaderProps {
+  onSearchChange?: (query: string) => void;
+  searchQuery?: string;
+}
+
+export function Header({ onSearchChange, searchQuery = "" }: HeaderProps) {
   const [location] = useLocation();
   const itemCount = useCartStore((state) => state.getItemCount());
-  const { zipCode, clearLocation } = useLocationStore();
+  const { locationName, clearLocation } = useLocationStore();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+  const isHome = location === "/";
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setScrolled(window.scrollY > 400);
+    };
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
 
   const navLinks = [
     { href: "/", label: "Discover Chefs" },
@@ -32,7 +49,7 @@ export function Header() {
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container mx-auto flex h-16 items-center justify-between gap-4 px-4">
         <Link href="/">
-          <div className="flex items-center gap-2 cursor-pointer" data-testid="link-home">
+          <div className="flex items-center gap-2 cursor-pointer shrink-0" data-testid="link-home">
             <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary">
               <ChefHat className="h-5 w-5 text-primary-foreground" />
             </div>
@@ -40,13 +57,44 @@ export function Header() {
           </div>
         </Link>
 
+        {/* Compact search bar - visible on scroll on home page */}
+        {isHome && scrolled && onSearchChange && (
+          <div className="hidden md:flex items-center gap-2 flex-1 max-w-md mx-4">
+            {locationName && (
+              <div className="flex items-center gap-1 text-sm text-muted-foreground whitespace-nowrap">
+                <MapPin className="h-3.5 w-3.5 text-primary" />
+                <span className="max-w-[100px] truncate">{locationName}</span>
+              </div>
+            )}
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                placeholder="Search chefs, cuisines..."
+                value={searchQuery}
+                onChange={(e) => onSearchChange(e.target.value)}
+                className="h-9 pl-8 pr-8 text-sm"
+                aria-label="Search chefs and cuisines"
+              />
+              {searchQuery && (
+                <button
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  onClick={() => onSearchChange("")}
+                  aria-label="Clear search"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         <nav className="hidden md:flex items-center gap-1">
           {navLinks.map((link) => (
             <Link key={link.href} href={link.href}>
               <Button
                 variant={location === link.href ? "secondary" : "ghost"}
                 size="sm"
-                data-testid={`link-nav-${link.label.toLowerCase().replace(/\s+/g, '-')}`}
+                data-testid={`link-nav-${link.label.toLowerCase().replace(/\s+/g, "-")}`}
               >
                 {link.label}
               </Button>
@@ -55,7 +103,7 @@ export function Header() {
         </nav>
 
         <div className="flex items-center gap-3">
-          {zipCode && (
+          {locationName && (
             <Button
               variant="outline"
               size="sm"
@@ -64,7 +112,7 @@ export function Header() {
               data-testid="button-location"
             >
               <MapPin className="h-4 w-4 text-primary" />
-              <span className="text-sm">{zipCode}</span>
+              <span className="text-sm max-w-[120px] truncate">{locationName}</span>
               <X className="h-3 w-3 text-muted-foreground" />
             </Button>
           )}
@@ -108,7 +156,7 @@ export function Header() {
                       variant={location === link.href ? "secondary" : "ghost"}
                       className="w-full justify-start"
                       onClick={() => setMobileMenuOpen(false)}
-                      data-testid={`link-mobile-${link.label.toLowerCase().replace(/\s+/g, '-')}`}
+                      data-testid={`link-mobile-${link.label.toLowerCase().replace(/\s+/g, "-")}`}
                     >
                       {link.label}
                     </Button>
