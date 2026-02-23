@@ -1,7 +1,8 @@
-import { 
+import {
   chefProfiles, menus, menuDaySlots, menuItems, menuItemAssignments, ingredients, allergens,
   itemIngredients, itemAllergens, orders, orderItems, userFavorites,
   servingOptions, itemPhotos, ingredientAllergens, assignmentServingOptions,
+  buyerProfiles, buyerAllergens,
   type ChefProfile, type InsertChefProfile,
   type Menu, type InsertMenu,
   type MenuDaySlot, type InsertMenuDaySlot,
@@ -17,7 +18,8 @@ import {
   type ItemPhoto, type InsertItemPhoto,
   type IngredientWithAllergens,
   type MenuItemWithDetails, type MenuItemWithAssignment, type DaySlotWithItems, type MenuWithDaySlots, type ChefProfileWithDaySlots, type OrderWithItems,
-  type AssignedServingOptionWithDetails
+  type AssignedServingOptionWithDetails,
+  type BuyerProfile, type InsertBuyerProfile, type BuyerProfileWithAllergens,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, ilike, sql, inArray } from "drizzle-orm";
@@ -100,6 +102,12 @@ export interface IStorage {
   createOrderItems(items: InsertOrderItem[]): Promise<OrderItem[]>;
   getOrdersByChefId(chefId: number): Promise<OrderWithItems[]>;
   updateOrderStatus(orderId: number, status: string): Promise<Order | undefined>;
+
+  // Buyer Profiles
+  getBuyerProfileBySessionId(sessionId: string): Promise<BuyerProfileWithAllergens | undefined>;
+  createBuyerProfile(profile: InsertBuyerProfile): Promise<BuyerProfile>;
+  updateBuyerProfile(id: number, profile: Partial<InsertBuyerProfile>): Promise<BuyerProfile | undefined>;
+  setBuyerAllergens(buyerProfileId: number, allergenIds: number[]): Promise<void>;
 
   // Seeding
   seedData(): Promise<void>;
@@ -787,6 +795,46 @@ export class DatabaseStorage implements IStorage {
       .where(eq(orders.id, orderId))
       .returning();
     return updated;
+  }
+
+  // Buyer Profiles
+  async getBuyerProfileBySessionId(sessionId: string): Promise<BuyerProfileWithAllergens | undefined> {
+    const [profile] = await db.select().from(buyerProfiles).where(eq(buyerProfiles.sessionId, sessionId));
+    if (!profile) return undefined;
+
+    const result = await db
+      .select({ allergen: allergens })
+      .from(buyerAllergens)
+      .innerJoin(allergens, eq(buyerAllergens.allergenId, allergens.id))
+      .where(eq(buyerAllergens.buyerProfileId, profile.id));
+
+    return {
+      ...profile,
+      allergens: result.map(r => r.allergen),
+    };
+  }
+
+  async createBuyerProfile(profile: InsertBuyerProfile): Promise<BuyerProfile> {
+    const [newProfile] = await db.insert(buyerProfiles).values(profile).returning();
+    return newProfile;
+  }
+
+  async updateBuyerProfile(id: number, profile: Partial<InsertBuyerProfile>): Promise<BuyerProfile | undefined> {
+    const [updated] = await db
+      .update(buyerProfiles)
+      .set({ ...profile, updatedAt: new Date() })
+      .where(eq(buyerProfiles.id, id))
+      .returning();
+    return updated;
+  }
+
+  async setBuyerAllergens(buyerProfileId: number, allergenIds: number[]): Promise<void> {
+    await db.delete(buyerAllergens).where(eq(buyerAllergens.buyerProfileId, buyerProfileId));
+    if (allergenIds.length > 0) {
+      await db.insert(buyerAllergens).values(
+        allergenIds.map(allergenId => ({ buyerProfileId, allergenId }))
+      );
+    }
   }
 
   async seedData(): Promise<void> {

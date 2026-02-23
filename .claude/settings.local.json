@@ -103,7 +103,17 @@
       "Bash(pkill -f \"tsx server/index.ts\" 2>/dev/null; pkill -f \"npm run dev\" 2>/dev/null; sleep 1; echo \"Processes cleared\")",
       "Bash(npx tsc --noEmit --pretty 2>&1 | head -50)",
       "Bash(npx tsc --noEmit --pretty 2>&1 | grep -E \"^\\(client/src/components/menu-item-card|client/src/lib/cart-store\\)\" || echo \"No errors in modified files\")",
-      "Bash(pkill -f \"tsx server/index.ts\" 2>/dev/null; pkill -f \"esbuild --service\" 2>/dev/null; sleep 2; ps aux | grep -E '\\(node|tsx\\)' | grep -v grep || echo \"Port 5000 is free\")"
+      "Bash(pkill -f \"tsx server/index.ts\" 2>/dev/null; pkill -f \"esbuild --service\" 2>/dev/null; sleep 2; ps aux | grep -E '\\(node|tsx\\)' | grep -v grep || echo \"Port 5000 is free\")",
+      "Bash(npx tsc --noEmit 2>&1 | head -40)",
+      "Bash(npx tsc --noEmit 2>&1 | grep \"error TS\" | grep -i \"buyer\\\\|buyer-profile\\\\|buyer-store\")",
+      "Bash(timeout 15 npm run dev 2>&1 || true)",
+      "Bash(psql \"$DATABASE_URL\" -c \"\\\\d buyer_profiles\" 2>&1)",
+      "Bash(curl -s http://localhost:5000/api/buyer-profile/test-session | head -50)",
+      "Bash(curl -s -H \"Accept: application/json\" http://localhost:5000/api/buyer-profile/test-session 2>&1)",
+      "Bash(curl -s http://localhost:5000/api/allergens 2>&1 | head -5)",
+      "Bash(npx drizzle-kit push --force 2>&1)",
+      "Bash(npx tsc --noEmit --pretty 2>&1 | grep -E \"^\\(client/src/components/dashboard/ProfileTab|client/src/pages/buyer-profile|shared/schema|server/routes\\)\" | head -20)",
+      "Bash(grep -r \"accent\" /home/runner/workspace/client/src --include=\"*.css\" 2>/dev/null | head -20)"
     ]
   }
 }

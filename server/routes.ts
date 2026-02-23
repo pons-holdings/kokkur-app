@@ -59,6 +59,11 @@ export async function registerRoutes(
     locationLat: z.number().optional(),
     locationLong: z.number().optional(),
     locationName: z.string().nullable().optional(),
+    addressStreet: z.string().min(1).optional(),
+    addressUnit: z.string().optional(),
+    addressCity: z.string().min(1).optional(),
+    addressState: z.string().min(1).optional(),
+    addressZip: z.string().length(5).optional(),
     serviceRadius: z.number().min(1).max(100).optional(),
     fulfillmentMethod: z.enum(["pickup", "delivery", "both"]).optional(),
     deliveryFee: z.number().min(0).nullable().optional(),
@@ -822,6 +827,106 @@ export async function registerRoutes(
       }
       console.error("Error updating order:", error);
       res.status(500).json({ error: "Failed to update order" });
+    }
+  });
+
+  // Buyer Profile routes
+  const createBuyerProfileSchema = z.object({
+    sessionId: z.string().min(1),
+    firstName: z.string().min(1).optional(),
+    lastName: z.string().min(1).optional(),
+    email: z.string().email().optional(),
+    phone: z.string().min(10).optional(),
+    profileImageUrl: z.string().nullable().optional(),
+    addressStreet: z.string().min(1).optional(),
+    addressUnit: z.string().optional(),
+    addressCity: z.string().min(1).optional(),
+    addressState: z.string().min(1).optional(),
+    addressZip: z.string().length(5).optional(),
+    addressLat: z.number().optional(),
+    addressLong: z.number().optional(),
+  });
+
+  const updateBuyerProfileSchema = z.object({
+    firstName: z.string().min(1).optional(),
+    lastName: z.string().min(1).optional(),
+    email: z.string().email().optional(),
+    phone: z.string().min(10).optional(),
+    profileImageUrl: z.string().nullable().optional(),
+    addressStreet: z.string().min(1).optional(),
+    addressUnit: z.string().optional(),
+    addressCity: z.string().min(1).optional(),
+    addressState: z.string().min(1).optional(),
+    addressZip: z.string().length(5).optional(),
+    addressLat: z.number().optional(),
+    addressLong: z.number().optional(),
+  });
+
+  app.get("/api/buyer-profile/:sessionId", async (req, res) => {
+    try {
+      const profile = await storage.getBuyerProfileBySessionId(req.params.sessionId);
+      if (!profile) {
+        return res.status(404).json({ error: "Profile not found" });
+      }
+      res.json(profile);
+    } catch (error) {
+      console.error("Error fetching buyer profile:", error);
+      res.status(500).json({ error: "Failed to fetch buyer profile" });
+    }
+  });
+
+  app.post("/api/buyer-profile", async (req, res) => {
+    try {
+      const data = createBuyerProfileSchema.parse(req.body);
+      const profile = await storage.createBuyerProfile(data);
+      res.status(201).json(profile);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid data", details: error.errors });
+      }
+      console.error("Error creating buyer profile:", error);
+      res.status(500).json({ error: "Failed to create buyer profile" });
+    }
+  });
+
+  app.patch("/api/buyer-profile/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid profile ID" });
+      }
+      const data = updateBuyerProfileSchema.parse(req.body);
+      const updated = await storage.updateBuyerProfile(id, data);
+      if (!updated) {
+        return res.status(404).json({ error: "Profile not found" });
+      }
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid data", details: error.errors });
+      }
+      console.error("Error updating buyer profile:", error);
+      res.status(500).json({ error: "Failed to update buyer profile" });
+    }
+  });
+
+  app.put("/api/buyer-profile/:id/allergens", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid profile ID" });
+      }
+      const { allergenIds } = z.object({
+        allergenIds: z.array(z.number().int().positive()),
+      }).parse(req.body);
+      await storage.setBuyerAllergens(id, allergenIds);
+      res.json({ success: true });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid data", details: error.errors });
+      }
+      console.error("Error updating buyer allergens:", error);
+      res.status(500).json({ error: "Failed to update buyer allergens" });
     }
   });
 

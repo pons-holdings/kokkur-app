@@ -40,6 +40,14 @@ import { useToast } from "@/hooks/use-toast";
 import { getCoordinatesFromZip, getLocationNameFromZip } from "@/lib/location-store";
 import { chefProfileSchema, type ChefProfileFormData, type ChefProfileWithDaySlots } from "./types";
 
+const US_STATES = [
+  "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA",
+  "HI","ID","IL","IN","IA","KS","KY","LA","ME","MD",
+  "MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
+  "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC",
+  "SD","TN","TX","UT","VT","VA","WA","WV","WI","WY","DC",
+];
+
 interface ProfileTabProps {
   chef: ChefProfileWithDaySlots | undefined;
 }
@@ -47,7 +55,6 @@ interface ProfileTabProps {
 export default function ProfileTab({ chef }: ProfileTabProps) {
   const [uploadingImage, setUploadingImage] = useState(false);
   const [newTag, setNewTag] = useState("");
-  const [zipInput, setZipInput] = useState("");
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -65,6 +72,11 @@ export default function ProfileTab({ chef }: ProfileTabProps) {
           locationLat: chef.locationLat,
           locationLong: chef.locationLong,
           locationName: chef.locationName || "",
+          addressStreet: chef.addressStreet || "",
+          addressUnit: chef.addressUnit || "",
+          addressCity: chef.addressCity || "",
+          addressState: chef.addressState || "",
+          addressZip: chef.addressZip || "",
           serviceRadius: chef.serviceRadius,
           fulfillmentMethod: chef.fulfillmentMethod,
           deliveryFee: chef.deliveryFee ?? 0,
@@ -136,24 +148,15 @@ export default function ProfileTab({ chef }: ProfileTabProps) {
     }
   };
 
-  const handleResolveZip = useCallback(() => {
-    const zip = zipInput.trim();
-    if (!/^\d{5}$/.test(zip)) {
-      toast({ title: "Invalid zip code", description: "Please enter a 5-digit zip code.", variant: "destructive" });
-      return;
-    }
+  const handleZipChange = useCallback((zip: string) => {
+    if (!/^\d{5}$/.test(zip)) return;
     const coords = getCoordinatesFromZip(zip);
-    if (!coords) {
-      toast({ title: "Zip code not found", description: "Could not resolve coordinates for this zip code.", variant: "destructive" });
-      return;
-    }
+    if (!coords) return;
     const name = getLocationNameFromZip(zip) || zip;
     form.setValue("locationLat", coords.lat, { shouldDirty: true });
     form.setValue("locationLong", coords.lng, { shouldDirty: true });
     form.setValue("locationName", name, { shouldDirty: true });
-    setZipInput("");
-    toast({ title: "Location updated", description: `Set to ${name}` });
-  }, [zipInput, form, toast]);
+  }, [form]);
 
   const handleAddTag = useCallback(() => {
     const tag = newTag.trim();
@@ -194,6 +197,88 @@ export default function ProfileTab({ chef }: ProfileTabProps) {
     <div className="max-w-2xl">
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          {/* Profile Photo */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ImageIcon className="h-5 w-5" />
+                Profile Photo
+              </CardTitle>
+              <CardDescription>Your public profile image</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <FormField
+                control={form.control}
+                name="profileImageUrl"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormControl>
+                      <div className="space-y-3">
+                        <input
+                          id="profile-image-upload"
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          disabled={uploadingImage}
+                          onChange={(e) => handleImageUpload(e, field.onChange)}
+                        />
+                        {field.value ? (
+                          <div className="flex flex-col items-start gap-3">
+                            <div className="w-32 h-32 rounded-full overflow-hidden bg-muted">
+                              <img
+                                src={field.value}
+                                alt="Profile preview"
+                                className="w-full h-full object-cover"
+                                referrerPolicy="no-referrer"
+                              />
+                            </div>
+                            <div className="flex gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={uploadingImage}
+                                onClick={() => document.getElementById("profile-image-upload")?.click()}
+                              >
+                                {uploadingImage ? (
+                                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                                ) : (
+                                  <Upload className="h-4 w-4 mr-1" />
+                                )}
+                                Change Photo
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => field.onChange("")}
+                              >
+                                <X className="h-4 w-4 mr-1" />
+                                Remove
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <label
+                            htmlFor="profile-image-upload"
+                            className="flex flex-col items-center justify-center w-32 h-32 rounded-full border-2 border-dashed cursor-pointer hover:border-primary/50 transition-colors"
+                          >
+                            {uploadingImage ? (
+                              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                            ) : (
+                              <Upload className="h-8 w-8 text-muted-foreground" />
+                            )}
+                          </label>
+                        )}
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </CardContent>
+          </Card>
+
           {/* Basic Info */}
           <Card>
             <CardHeader>
@@ -300,63 +385,6 @@ export default function ProfileTab({ chef }: ProfileTabProps) {
                 )}
               />
 
-              {/* Profile Image */}
-              <FormField
-                control={form.control}
-                name="profileImageUrl"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="flex items-center gap-2">
-                      <ImageIcon className="h-4 w-4" />
-                      Profile Photo
-                    </FormLabel>
-                    <FormControl>
-                      <div className="space-y-3">
-                        {field.value ? (
-                          <div className="relative w-32 h-32 rounded-full overflow-hidden bg-muted">
-                            <img
-                              src={field.value}
-                              alt="Profile preview"
-                              className="w-full h-full object-cover"
-                              referrerPolicy="no-referrer"
-                            />
-                            <Button
-                              type="button"
-                              variant="secondary"
-                              size="icon"
-                              className="absolute top-1 right-1 h-7 w-7"
-                              onClick={() => field.onChange("")}
-                            >
-                              <X className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-                        ) : (
-                          <label
-                            htmlFor="profile-image-upload"
-                            className="flex flex-col items-center justify-center w-32 h-32 rounded-full border-2 border-dashed cursor-pointer hover:border-primary/50 transition-colors"
-                          >
-                            {uploadingImage ? (
-                              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                            ) : (
-                              <Upload className="h-8 w-8 text-muted-foreground" />
-                            )}
-                            <input
-                              id="profile-image-upload"
-                              type="file"
-                              accept="image/*"
-                              className="hidden"
-                              disabled={uploadingImage}
-                              onChange={(e) => handleImageUpload(e, field.onChange)}
-                            />
-                          </label>
-                        )}
-                      </div>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
               {/* Cuisine Tags */}
               <FormField
                 control={form.control}
@@ -418,36 +446,102 @@ export default function ProfileTab({ chef }: ProfileTabProps) {
               <CardDescription>Where you operate and how far you serve</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <FormField
+                control={form.control}
+                name="addressStreet"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Street Address</FormLabel>
+                    <FormControl>
+                      <Input placeholder="123 Main St" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="addressUnit"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Apt / Unit</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Apt 4B (optional)" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <div className="grid grid-cols-3 gap-4">
+                <FormField
+                  control={form.control}
+                  name="addressCity"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>City</FormLabel>
+                      <FormControl>
+                        <Input placeholder="New York" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="addressState"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>State</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="State" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {US_STATES.map((state) => (
+                            <SelectItem key={state} value={state}>
+                              {state}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="addressZip"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>ZIP Code</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="10001"
+                          maxLength={5}
+                          {...field}
+                          onChange={(e) => {
+                            field.onChange(e);
+                            handleZipChange(e.target.value);
+                          }}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
               {/* Current location display */}
               <div className="text-sm">
-                <span className="text-muted-foreground">Current location: </span>
+                <span className="text-muted-foreground">Resolved location: </span>
                 <span className="font-medium">{form.watch("locationName") || "Not set"}</span>
                 <span className="text-muted-foreground ml-2">
                   ({form.watch("locationLat")?.toFixed(4)}, {form.watch("locationLong")?.toFixed(4)})
                 </span>
-              </div>
-
-              {/* Zip code update */}
-              <div>
-                <FormLabel>Update Location</FormLabel>
-                <div className="flex gap-2 mt-1">
-                  <Input
-                    placeholder="Enter zip code"
-                    value={zipInput}
-                    onChange={(e) => setZipInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        handleResolveZip();
-                      }
-                    }}
-                    className="w-40"
-                  />
-                  <Button type="button" variant="outline" onClick={handleResolveZip}>
-                    <MapPin className="h-4 w-4 mr-1" />
-                    Set
-                  </Button>
-                </div>
               </div>
 
               <FormField

@@ -480,7 +480,7 @@ export default function Home() {
                   {/* Location field */}
                   <div className="relative flex-shrink-0 sm:w-52">
                     {hasLocation ? (
-                      <div className="flex items-center h-11 px-3 rounded-lg bg-accent/50 border border-accent gap-2">
+                      <div className="flex items-center h-11 px-3 rounded-lg bg-muted border border-input gap-2">
                         <MapPin className="h-4 w-4 text-primary shrink-0" />
                         <span className="text-sm font-medium truncate">{locationName}</span>
                         <button

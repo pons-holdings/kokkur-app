@@ -10,6 +10,7 @@ import Cart from "@/pages/cart";
 import Checkout from "@/pages/checkout";
 import OrderSuccess from "@/pages/order-success";
 import Dashboard from "@/pages/dashboard";
+import BuyerProfilePage from "@/pages/buyer-profile";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -21,6 +22,7 @@ function Router() {
       <Route path="/checkout" component={Checkout} />
       <Route path="/order-success" component={OrderSuccess} />
       <Route path="/dashboard" component={Dashboard} />
+      <Route path="/profile" component={BuyerProfilePage} />
       <Route component={NotFound} />
     </Switch>
   );

@@ -8,6 +8,7 @@ import {
   Menu,
   X,
   Search,
+  CircleUserRound,
 } from "lucide-react";
 import { KokkurIcon } from "@/components/kokkur-logo";
 import { useCartStore } from "@/lib/cart-store";
@@ -43,6 +44,7 @@ export function Header({ onSearchChange, searchQuery = "" }: HeaderProps) {
   const navLinks = [
     { href: "/", label: "Discover Chefs" },
     { href: "/dashboard", label: "Chef Dashboard" },
+    { href: "/profile", label: "My Profile" },
   ];
 
   return (
@@ -114,6 +116,17 @@ export function Header({ onSearchChange, searchQuery = "" }: HeaderProps) {
               <X className="h-3 w-3 text-muted-foreground" />
             </Button>
           )}
+
+          <Link href="/profile">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9"
+              data-testid="button-profile"
+            >
+              <CircleUserRound className="h-5 w-5" />
+            </Button>
+          </Link>
 
           <Link href="/cart">
             <Button

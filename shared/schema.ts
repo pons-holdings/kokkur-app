@@ -23,6 +23,11 @@ export const chefProfiles = pgTable("chef_profiles", {
   locationLat: real("location_lat").notNull(),
   locationLong: real("location_long").notNull(),
   locationName: text("location_name"),
+  addressStreet: text("address_street"),
+  addressUnit: text("address_unit"),
+  addressCity: text("address_city"),
+  addressState: text("address_state"),
+  addressZip: text("address_zip"),
   serviceRadius: integer("service_radius").notNull().default(10),
   fulfillmentMethod: fulfillmentMethodEnum("fulfillment_method").notNull().default("both"),
   deliveryFee: real("delivery_fee").default(0),
@@ -189,6 +194,34 @@ export const userFavorites = pgTable("user_favorites", {
 }, (table) => [
 ]);
 
+// Buyer Profiles
+export const buyerProfiles = pgTable("buyer_profiles", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  sessionId: text("session_id").notNull().unique(),
+  firstName: text("first_name"),
+  lastName: text("last_name"),
+  email: text("email"),
+  phone: text("phone"),
+  profileImageUrl: text("profile_image_url"),
+  addressStreet: text("address_street"),
+  addressUnit: text("address_unit"),
+  addressCity: text("address_city"),
+  addressState: text("address_state"),
+  addressZip: text("address_zip"),
+  addressLat: real("address_lat"),
+  addressLong: real("address_long"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Buyer Allergens (many-to-many)
+export const buyerAllergens = pgTable("buyer_allergens", {
+  buyerProfileId: integer("buyer_profile_id").notNull().references(() => buyerProfiles.id, { onDelete: "cascade" }),
+  allergenId: integer("allergen_id").notNull().references(() => allergens.id, { onDelete: "cascade" }),
+}, (table) => [
+  primaryKey({ columns: [table.buyerProfileId, table.allergenId] }),
+]);
+
 // Relations
 export const chefProfilesRelations = relations(chefProfiles, ({ many }) => ({
   menus: many(menus),
@@ -333,6 +366,21 @@ export const userFavoritesRelations = relations(userFavorites, ({ one }) => ({
   }),
 }));
 
+export const buyerProfilesRelations = relations(buyerProfiles, ({ many }) => ({
+  allergens: many(buyerAllergens),
+}));
+
+export const buyerAllergensRelations = relations(buyerAllergens, ({ one }) => ({
+  buyerProfile: one(buyerProfiles, {
+    fields: [buyerAllergens.buyerProfileId],
+    references: [buyerProfiles.id],
+  }),
+  allergen: one(allergens, {
+    fields: [buyerAllergens.allergenId],
+    references: [allergens.id],
+  }),
+}));
+
 // Insert Schemas
 export const insertChefProfileSchema = createInsertSchema(chefProfiles).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertMenuSchema = createInsertSchema(menus).omit({ id: true });
@@ -350,6 +398,8 @@ export const insertOrderItemSchema = createInsertSchema(orderItems).omit({ id: t
 export const insertItemIngredientSchema = createInsertSchema(itemIngredients);
 export const insertItemAllergenSchema = createInsertSchema(itemAllergens);
 export const insertUserFavoriteSchema = createInsertSchema(userFavorites).omit({ id: true });
+export const insertBuyerProfileSchema = createInsertSchema(buyerProfiles).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertBuyerAllergenSchema = createInsertSchema(buyerAllergens);
 
 // Types
 export type ChefProfile = typeof chefProfiles.$inferSelect;
@@ -384,6 +434,10 @@ export type AssignmentServingOption = typeof assignmentServingOptions.$inferSele
 export type InsertAssignmentServingOption = z.infer<typeof insertAssignmentServingOptionSchema>;
 export type UserFavorite = typeof userFavorites.$inferSelect;
 export type InsertUserFavorite = z.infer<typeof insertUserFavoriteSchema>;
+export type BuyerProfile = typeof buyerProfiles.$inferSelect;
+export type InsertBuyerProfile = z.infer<typeof insertBuyerProfileSchema>;
+export type BuyerAllergen = typeof buyerAllergens.$inferSelect;
+export type InsertBuyerAllergen = z.infer<typeof insertBuyerAllergenSchema>;
 
 // Extended types for API responses
 export type IngredientWithAllergens = Ingredient & {
@@ -435,4 +489,8 @@ export type ChefProfileWithMenus = ChefProfileWithDaySlots;
 export type OrderWithItems = Order & {
   items: (OrderItem & { menuItem?: MenuItem })[];
   chef?: ChefProfile;
+};
+
+export type BuyerProfileWithAllergens = BuyerProfile & {
+  allergens: Allergen[];
 };
