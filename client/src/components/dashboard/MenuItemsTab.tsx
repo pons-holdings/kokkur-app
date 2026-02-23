@@ -31,7 +31,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
 import MenuItemFormComponent from "./MenuItemForm";
 import type { ServingOptionInput } from "@/components/serving-options-editor";
 import {
@@ -81,7 +81,16 @@ const MenuItemsTab = React.memo(function MenuItemsTab({
 
   const createMenuItemMutation = useMutation({
     mutationFn: async (data: MenuItemFormData) => {
-      return apiRequest("POST", "/api/menu-items", data);
+      const res = await fetch("/api/menu-items", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to create item");
+      }
+      return res.json();
     },
     onSuccess: () => {
       toast({ title: "Food item created", description: "Your new food item has been added." });
@@ -97,7 +106,16 @@ const MenuItemsTab = React.memo(function MenuItemsTab({
 
   const updateMenuItemMutation = useMutation({
     mutationFn: async ({ id, data }: { id: number; data: Partial<MenuItemFormData> }) => {
-      return apiRequest("PATCH", `/api/menu-items/${id}`, data);
+      const res = await fetch(`/api/menu-items/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to update item");
+      }
+      return res.json();
     },
     onSuccess: () => {
       toast({ title: "Food item updated", description: "Your food item has been updated." });
@@ -113,7 +131,13 @@ const MenuItemsTab = React.memo(function MenuItemsTab({
 
   const deleteMenuItemMutation = useMutation({
     mutationFn: async (id: number) => {
-      return apiRequest("DELETE", `/api/menu-items/${id}`);
+      const res = await fetch(`/api/menu-items/${id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to delete item");
+      }
     },
     onSuccess: () => {
       toast({ title: "Food item deleted", description: "Your food item has been removed." });

@@ -45,6 +45,11 @@ export async function registerRoutes(
 
   const updateChefSchema = z.object({
     name: z.string().min(2).optional(),
+    slug: z.string()
+      .min(3, "URL must be at least 3 characters")
+      .max(100)
+      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Only lowercase letters, numbers, and hyphens")
+      .optional(),
     bio: z.string().nullable().optional(),
     profileImageUrl: z.string().nullable().optional(),
     cuisineTags: z.array(z.string()).optional(),
@@ -67,6 +72,12 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid chef ID" });
       }
       const data = updateChefSchema.parse(req.body);
+      if (data.slug) {
+        const existing = await storage.getChefBySlug(data.slug);
+        if (existing && existing.id !== id) {
+          return res.status(409).json({ error: "This URL is already taken by another chef" });
+        }
+      }
       const updated = await storage.updateChef(id, data);
       if (!updated) {
         return res.status(404).json({ error: "Chef not found" });
@@ -455,6 +466,7 @@ export async function registerRoutes(
     chefId: z.number(),
     title: z.string().min(2),
     description: z.string().optional(),
+    imageUrl: z.string().optional(),
     allergenIds: z.array(z.number()).default([]),
     ingredientIds: z.array(z.number()).default([]),
     servingOptions: z.array(servingOptionInputSchema).optional(),
@@ -497,14 +509,23 @@ export async function registerRoutes(
         }
       }
       
+      if (data.imageUrl) {
+        await storage.createItemPhoto({
+          menuItemId: item.id,
+          imageUrl: data.imageUrl,
+          isCover: 1,
+          sortOrder: 0,
+        });
+      }
+
       if (data.allergenIds.length > 0) {
         await storage.addItemAllergens(item.id, data.allergenIds);
       }
-      
+
       if (data.ingredientIds.length > 0) {
         await storage.addItemIngredients(item.id, data.ingredientIds);
       }
-      
+
       const itemWithDetails = await storage.getMenuItemById(item.id);
       res.status(201).json(itemWithDetails);
     } catch (error) {
@@ -519,6 +540,7 @@ export async function registerRoutes(
   const updateMenuItemSchema = z.object({
     title: z.string().min(2).optional(),
     description: z.string().optional().nullable(),
+    imageUrl: z.string().optional().nullable(),
     allergenIds: z.array(z.number()).optional(),
     ingredientIds: z.array(z.number()).optional(),
     servingOptions: z.array(servingOptionInputSchema).optional(),
@@ -532,7 +554,7 @@ export async function registerRoutes(
       }
       
       const validated = updateMenuItemSchema.parse(req.body);
-      const { allergenIds, ingredientIds, servingOptions, ...itemData } = validated;
+      const { allergenIds, ingredientIds, servingOptions, imageUrl, ...itemData } = validated;
       
       const item = await storage.updateMenuItem(itemId, itemData);
       if (!item) {
@@ -550,6 +572,25 @@ export async function registerRoutes(
         await storage.clearItemIngredients(itemId);
         if (ingredientIds.length > 0) {
           await storage.addItemIngredients(itemId, ingredientIds);
+        }
+      }
+
+      // Handle image changes
+      if (imageUrl !== undefined) {
+        const existingPhotos = await storage.getPhotosByMenuItemId(itemId);
+        const currentCover = existingPhotos.find(p => p.isCover === 1);
+        if (imageUrl) {
+          if (!currentCover || currentCover.imageUrl !== imageUrl) {
+            if (currentCover) await storage.deleteItemPhoto(currentCover.id);
+            await storage.createItemPhoto({
+              menuItemId: itemId,
+              imageUrl: imageUrl,
+              isCover: 1,
+              sortOrder: 0,
+            });
+          }
+        } else if (currentCover) {
+          await storage.deleteItemPhoto(currentCover.id);
         }
       }
 

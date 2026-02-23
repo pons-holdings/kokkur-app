@@ -37,7 +37,6 @@ import {
   Trash2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
 import { getCoordinatesFromZip, getLocationNameFromZip } from "@/lib/location-store";
 import { chefProfileSchema, type ChefProfileFormData, type ChefProfileWithDaySlots } from "./types";
 
@@ -57,6 +56,7 @@ export default function ProfileTab({ chef }: ProfileTabProps) {
     values: chef
       ? {
           name: chef.name,
+          slug: chef.slug || "",
           bio: chef.bio || "",
           profileImageUrl: chef.profileImageUrl || "",
           locationLat: chef.locationLat,
@@ -73,10 +73,14 @@ export default function ProfileTab({ chef }: ProfileTabProps) {
 
   const mutation = useMutation({
     mutationFn: async (data: ChefProfileFormData) => {
-      const res = await apiRequest("PATCH", `/api/chefs/${chef!.id}`, data);
+      const res = await fetch(`/api/chefs/${chef!.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Failed to update profile");
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to update profile");
       }
       return res.json();
     },
@@ -211,11 +215,23 @@ export default function ProfileTab({ chef }: ProfileTabProps) {
                 )}
               />
 
-              {chef.slug && (
-                <div className="text-sm text-muted-foreground">
-                  Profile URL: <span className="font-mono text-foreground">/chef/{chef.slug}</span>
-                </div>
-              )}
+              <FormField
+                control={form.control}
+                name="slug"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Profile URL</FormLabel>
+                    <FormControl>
+                      <div className="flex items-center gap-1">
+                        <span className="text-sm text-muted-foreground whitespace-nowrap">/chef/</span>
+                        <Input placeholder="your-url" {...field} />
+                      </div>
+                    </FormControl>
+                    <FormDescription>Unique URL for your public profile page</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
               <FormField
                 control={form.control}
@@ -469,7 +485,7 @@ export default function ProfileTab({ chef }: ProfileTabProps) {
                           <Input
                             type="number"
                             min={0}
-                            step={0.5}
+                            step={0.01}
                             className="w-24"
                             {...field}
                             onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
@@ -507,49 +523,59 @@ export default function ProfileTab({ chef }: ProfileTabProps) {
                         {field.value && field.value.length > 0 && (
                           <div className="space-y-2">
                             {field.value.map((pm, index) => (
-                              <div key={index} className="flex items-center gap-2">
-                                <Select
-                                  value={pm.method}
-                                  onValueChange={(value) => {
-                                    const updated = [...field.value];
-                                    updated[index] = { ...updated[index], method: value };
-                                    field.onChange(updated);
-                                  }}
-                                >
-                                  <SelectTrigger className="w-[140px]">
-                                    <SelectValue placeholder="Method" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="venmo">Venmo</SelectItem>
-                                    <SelectItem value="paypal">PayPal</SelectItem>
-                                    <SelectItem value="zelle">Zelle</SelectItem>
-                                    <SelectItem value="cashapp">Cash App</SelectItem>
-                                    <SelectItem value="cash">Cash</SelectItem>
-                                    <SelectItem value="other">Other</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                                <Input
-                                  placeholder="@username or email"
-                                  value={pm.handle}
-                                  onChange={(e) => {
-                                    const updated = [...field.value];
-                                    updated[index] = { ...updated[index], handle: e.target.value };
-                                    field.onChange(updated);
-                                  }}
-                                  className="flex-1"
-                                />
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon"
-                                  className="shrink-0"
-                                  onClick={() => {
-                                    const updated = field.value.filter((_, i) => i !== index);
-                                    field.onChange(updated);
-                                  }}
-                                >
-                                  <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
-                                </Button>
+                              <div key={index} className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                  <Select
+                                    value={pm.method}
+                                    onValueChange={(value) => {
+                                      const updated = [...field.value];
+                                      updated[index] = { ...updated[index], method: value };
+                                      field.onChange(updated);
+                                    }}
+                                  >
+                                    <SelectTrigger className="w-[140px]">
+                                      <SelectValue placeholder="Method" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="venmo">Venmo</SelectItem>
+                                      <SelectItem value="paypal">PayPal</SelectItem>
+                                      <SelectItem value="zelle">Zelle</SelectItem>
+                                      <SelectItem value="cashapp">Cash App</SelectItem>
+                                      <SelectItem value="cash">Cash</SelectItem>
+                                      <SelectItem value="other">Other</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                  <Input
+                                    placeholder="@username or email"
+                                    value={pm.handle}
+                                    onChange={(e) => {
+                                      const updated = [...field.value];
+                                      updated[index] = { ...updated[index], handle: e.target.value };
+                                      field.onChange(updated);
+                                    }}
+                                    className="flex-1"
+                                  />
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="shrink-0"
+                                    onClick={() => {
+                                      const updated = field.value.filter((_, i) => i !== index);
+                                      field.onChange(updated);
+                                    }}
+                                  >
+                                    <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
+                                  </Button>
+                                </div>
+                                {form.formState.errors.paymentMethods?.[index]?.method && (
+                                  <p className="text-sm text-destructive">Select a payment method</p>
+                                )}
+                                {form.formState.errors.paymentMethods?.[index]?.handle && (
+                                  <p className="text-sm text-destructive">
+                                    {form.formState.errors.paymentMethods[index].handle.message}
+                                  </p>
+                                )}
                               </div>
                             ))}
                           </div>
@@ -560,7 +586,7 @@ export default function ProfileTab({ chef }: ProfileTabProps) {
                           size="sm"
                           onClick={() => {
                             const current = field.value || [];
-                            field.onChange([...current, { method: "", handle: "" }]);
+                            field.onChange([...current, { method: "venmo", handle: "" }]);
                           }}
                         >
                           <Plus className="h-4 w-4 mr-1" />

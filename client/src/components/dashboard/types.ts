@@ -35,6 +35,10 @@ export type MenuItemFormData = z.infer<typeof menuItemSchema>;
 
 export const chefProfileSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
+  slug: z.string()
+    .min(3, "URL must be at least 3 characters")
+    .max(100, "URL must be 100 characters or less")
+    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Only lowercase letters, numbers, and hyphens"),
   bio: z.string().optional().default(""),
   profileImageUrl: z.string().optional().default(""),
   locationLat: z.number(),
