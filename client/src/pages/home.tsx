@@ -89,6 +89,8 @@ export default function Home() {
   const [excludedAllergens, setExcludedAllergens] = useState<number[]>([]);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [showDaySelector, setShowDaySelector] = useState(true);
+  const menuContentEndRef = useRef<HTMLDivElement>(null);
 
   const {
     zipCode, lat, lng, locationName, geoStatus,
@@ -420,6 +422,29 @@ export default function Home() {
   const totalDayMenuItems = flatDayMenuItems.length;
   const uniqueChefCount = new Set(flatDayMenuItems.map((fi) => fi.chef.id)).size;
 
+  useEffect(() => {
+    const sentinel = menuContentEndRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setShowDaySelector(true);
+        } else if (entry.boundingClientRect.top < 80) {
+          // Sentinel scrolled above viewport → past menu content
+          setShowDaySelector(false);
+        } else {
+          // Sentinel below viewport → haven't reached it yet
+          setShowDaySelector(true);
+        }
+      },
+      { rootMargin: "-80px 0px 0px 0px", threshold: 0 }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [availableDates.length, flatDayMenuItems.length]);
+
   const featuredChefs = useMemo(
     () => chefsWithDistance.slice(0, 6),
     [chefsWithDistance]
@@ -571,7 +596,7 @@ export default function Home() {
 
       {/* ── Day Selector ── */}
       {!isNoChefs && !isLoading && availableDates.length > 0 && (
-        <section className="border-b bg-background/80 backdrop-blur-sm sticky top-16 z-40">
+        <section className={`border-b bg-background/80 backdrop-blur-sm sticky top-16 z-40 transition-all duration-300 ease-in-out ${showDaySelector ? "opacity-100 translate-y-0 pointer-events-auto" : "opacity-0 -translate-y-full pointer-events-none"}`}>
           <div className="container mx-auto px-4 py-3">
             <DaySelector
               availableDates={availableDates}
@@ -652,6 +677,10 @@ export default function Home() {
             Clear filters
           </Button>
         </section>
+      )}
+
+      {!isNoChefs && !isLoading && availableDates.length > 0 && (
+        <div ref={menuContentEndRef} className="h-0 w-full" aria-hidden="true" />
       )}
 
       {/* ── Chef Results or Newsletter ── */}

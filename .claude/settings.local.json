@@ -68,7 +68,8 @@
       "Bash(npx tsc --noEmit 2>&1 | head -30)",
       "Bash(ls /home/runner/workspace/dist/*.cjs 2>/dev/null && echo \"cjs exists\" || echo \"NO dist/index.cjs found\")",
       "Bash(npm run build 2>&1)",
-      "Bash(timeout 10 node ./dist/index.cjs 2>&1 || true)"
+      "Bash(timeout 10 node ./dist/index.cjs 2>&1 || true)",
+      "Bash(npx tsc --noEmit 2>&1 | grep \"home.tsx\")"
     ]
   }
 }
