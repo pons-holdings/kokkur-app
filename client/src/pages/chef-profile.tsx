@@ -25,6 +25,7 @@ import { useFavoritesStore } from "@/lib/favorites-store";
 import { useCartStore } from "@/lib/cart-store";
 import { useLocationStore } from "@/lib/location-store";
 import { useToast } from "@/hooks/use-toast";
+import { getChefFullName, getChefInitials } from "@/lib/chef-utils";
 import type { ChefProfileWithDaySlots, Allergen } from "@shared/schema";
 import { getDistance } from "geolib";
 import { format, isBefore, parseISO } from "date-fns";
@@ -212,9 +213,9 @@ export default function ChefProfile() {
                 <div className="flex flex-col items-center text-center space-y-4">
                   <div className="relative">
                     <Avatar className="h-24 w-24 ring-4 ring-background shadow-lg">
-                      <AvatarImage src={chef.profileImageUrl || undefined} alt={chef.name} referrerPolicy="no-referrer" />
+                      <AvatarImage src={chef.profileImageUrl || undefined} alt={getChefFullName(chef)} referrerPolicy="no-referrer" />
                       <AvatarFallback className="bg-primary/10 text-primary text-2xl font-medium">
-                        {chef.name.split(" ").map((n) => n[0]).join("").toUpperCase()}
+                        {getChefInitials(chef)}
                       </AvatarFallback>
                     </Avatar>
                     <Button
@@ -233,7 +234,7 @@ export default function ChefProfile() {
                   </div>
 
                   <div>
-                    <h1 className="text-xl font-bold">{chef.name}</h1>
+                    <h1 className="text-xl font-bold">{getChefFullName(chef)}</h1>
                     {chef.locationName && (
                       <p className="text-sm text-muted-foreground">{chef.locationName}</p>
                     )}

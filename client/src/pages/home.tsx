@@ -48,6 +48,7 @@ import { MultiSelectFilter } from "@/components/multi-select-filter";
 import { useLocationStore, getCoordinatesFromZip, getLocationNameFromZip } from "@/lib/location-store";
 import { getDistance } from "geolib";
 import { parseISO, isBefore } from "date-fns";
+import { getChefDisplayName, getChefInitials } from "@/lib/chef-utils";
 import type { ChefProfileWithDaySlots } from "@shared/schema";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -252,7 +253,7 @@ export default function Home() {
       const matchedChefIds = new Set<number>();
 
       chefs.forEach((chef) => {
-        const chefNameMatch = chef.name.toLowerCase().includes(searchLower);
+        const chefNameMatch = chef.firstName.toLowerCase().includes(searchLower) || chef.lastName.toLowerCase().includes(searchLower);
         const cuisineMatch = chef.cuisineTags?.some((t) =>
           t.toLowerCase().includes(searchLower)
         );
@@ -373,7 +374,7 @@ export default function Home() {
             const ingredientMatch = item.ingredients?.some((ing: any) =>
               ing.name.toLowerCase().includes(searchLower)
             );
-            const chefNameMatch = chef.name.toLowerCase().includes(searchLower);
+            const chefNameMatch = chef.firstName.toLowerCase().includes(searchLower) || chef.lastName.toLowerCase().includes(searchLower);
             const cuisineMatch = chef.cuisineTags?.some((t: string) =>
               t.toLowerCase().includes(searchLower)
             );
@@ -974,7 +975,7 @@ function ChefCardHome({ chef, index }: { chef: ChefProfileWithDaySlots & { dista
               {sampleDishImage ? (
                 <img
                   src={sampleDishImage}
-                  alt={`Dish from ${chef.name}`}
+                  alt={`Dish from ${getChefDisplayName(chef)}`}
                   className="w-full h-full object-cover"
                   referrerPolicy="no-referrer"
                   onError={(e) => {
@@ -1003,14 +1004,14 @@ function ChefCardHome({ chef, index }: { chef: ChefProfileWithDaySlots & { dista
               {/* Avatar + name */}
               <div className="flex items-center gap-3">
                 <Avatar className="h-11 w-11 shrink-0 ring-2 ring-background shadow-sm">
-                  <AvatarImage src={chef.profileImageUrl || undefined} alt={chef.name} referrerPolicy="no-referrer" />
+                  <AvatarImage src={chef.profileImageUrl || undefined} alt={getChefDisplayName(chef)} referrerPolicy="no-referrer" />
                   <AvatarFallback className="bg-primary/10 text-primary font-semibold text-sm">
-                    {chef.name.split(" ").map((n) => n[0]).join("").toUpperCase()}
+                    {getChefInitials(chef)}
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex-1 min-w-0">
                   <h3 className="font-semibold text-foreground truncate group-hover:text-primary transition-colors">
-                    {chef.name}
+                    {getChefDisplayName(chef)}
                   </h3>
                   <div className="flex items-center gap-1 text-sm">
                     <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />

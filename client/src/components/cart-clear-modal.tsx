@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ShoppingCart, AlertTriangle } from "lucide-react";
 import { useCartStore } from "@/lib/cart-store";
+import { getChefDisplayName } from "@/lib/chef-utils";
 
 interface CartClearModalProps {
   open: boolean;
@@ -46,7 +47,7 @@ export function CartClearModal({
           <AlertDialogDescription className="text-center space-y-2">
             <p>
               You have {itemCount} {itemCount === 1 ? "item" : "items"} from{" "}
-              <span className="font-medium text-foreground">{chef?.name}</span> in your
+              <span className="font-medium text-foreground">{getChefDisplayName(chef)}</span> in your
               cart.
             </p>
             <p>

@@ -34,7 +34,10 @@ export const menuItemSchema = z.object({
 export type MenuItemFormData = z.infer<typeof menuItemSchema>;
 
 export const chefProfileSchema = z.object({
-  name: z.string().min(2, "Name must be at least 2 characters"),
+  firstName: z.string().min(1, "First name is required"),
+  lastName: z.string().min(1, "Last name is required"),
+  email: z.string().email("Invalid email address").optional().default(""),
+  phone: z.string().optional().default(""),
   slug: z.string()
     .min(3, "URL must be at least 3 characters")
     .max(100, "URL must be 100 characters or less")

@@ -17,6 +17,7 @@ export interface CartState {
   addItem: (item: MenuItemWithDetails, chef: ChefProfile, daySlotId: number, daySlotDate: string, servingOption?: ServingOption) => void;
   removeItem: (menuItemId: number, daySlotId: number) => void;
   updateQuantity: (menuItemId: number, daySlotId: number, quantity: number) => void;
+  updateServingOption: (menuItemId: number, daySlotId: number, servingOption: ServingOption) => void;
   clearCart: () => void;
   getTotal: () => number;
   getItemCount: () => number;
@@ -107,6 +108,17 @@ export const useCartStore = create<CartState>()(
           items: state.items.map(i =>
             i.menuItem.id === menuItemId && i.daySlotId === daySlotId
               ? { ...i, quantity }
+              : i
+          ),
+        });
+      },
+
+      updateServingOption: (menuItemId: number, daySlotId: number, servingOption: ServingOption) => {
+        const state = get();
+        set({
+          items: state.items.map(i =>
+            i.menuItem.id === menuItemId && i.daySlotId === daySlotId
+              ? { ...i, servingOption }
               : i
           ),
         });

@@ -13,7 +13,10 @@ export const orderStatusEnum = pgEnum("order_status", ["pending", "confirmed", "
 export const chefProfiles = pgTable("chef_profiles", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   slug: varchar("slug", { length: 100 }).notNull().unique(),
-  name: text("name").notNull(),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  email: text("email"),
+  phone: text("phone"),
   bio: text("bio"),
   profileImageUrl: text("profile_image_url"),
   cuisineTags: text("cuisine_tags").array().notNull().default(sql`'{}'::text[]`),

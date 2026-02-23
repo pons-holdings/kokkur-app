@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useState, useEffect } from "react";
 import { Link } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { useCartStore } from "@/lib/cart-store";
+import { getChefDisplayName } from "@/lib/chef-utils";
 import type { MenuItemWithDetails, ChefProfile, ServingOption } from "@shared/schema";
 
 interface MenuItemCardProps {
@@ -26,43 +27,33 @@ interface MenuItemCardProps {
   onAddToCart?: () => void;
 }
 
-function getPriceDisplay(servingOptions: ServingOption[] | undefined) {
-  if (!servingOptions || servingOptions.length === 0) {
-    return { display: "Price TBD", defaultOption: undefined };
-  }
-
-  const defaultOption = servingOptions.find(o => o.isDefault === 1) || servingOptions[0];
-
-  if (servingOptions.length === 1) {
-    return {
-      display: `$${defaultOption.price.toFixed(2)}`,
-      label: defaultOption.label,
-      defaultOption
-    };
-  }
-
-  const prices = servingOptions.map(o => o.price);
-  const minPrice = Math.min(...prices);
-  const maxPrice = Math.max(...prices);
-
-  return {
-    display: `$${minPrice.toFixed(2)} - $${maxPrice.toFixed(2)}`,
-    label: defaultOption.label,
-    defaultOption
-  };
-}
 
 export const MenuItemCard = memo(function MenuItemCard({ item, chef, daySlotId, daySlotDate, orderCutoffDate, onAddToCart }: MenuItemCardProps) {
-  const { items, addItem, updateQuantity } = useCartStore();
+  const { items, addItem, updateQuantity, updateServingOption } = useCartStore();
 
   const cartItem = items.find((i) => i.menuItem.id === item.id && i.daySlotId === daySlotId);
   const quantity = cartItem?.quantity || 0;
-  const priceInfo = getPriceDisplay(item.servingOptions);
+
+  const servingOptions = item.servingOptions || [];
+  const defaultOption = servingOptions.find(o => o.isDefault === 1) || servingOptions[0];
+  const hasMultipleOptions = servingOptions.length > 1;
+
+  // Track which serving option is selected — sync with cart if already added
+  const [selectedOption, setSelectedOption] = useState<ServingOption | undefined>(
+    cartItem?.servingOption || defaultOption
+  );
+
+  // Keep local state in sync if the cart item changes externally
+  useEffect(() => {
+    if (cartItem?.servingOption) {
+      setSelectedOption(cartItem.servingOption);
+    }
+  }, [cartItem?.servingOption]);
 
   const coverPhotoUrl = item.coverPhoto || (item.photos && item.photos.length > 0 ? item.photos[0].imageUrl : undefined);
 
   const handleAdd = () => {
-    addItem(item, chef, daySlotId, daySlotDate);
+    addItem(item, chef, daySlotId, daySlotDate, selectedOption);
     if (onAddToCart) {
       onAddToCart();
     }
@@ -75,6 +66,14 @@ export const MenuItemCard = memo(function MenuItemCard({ item, chef, daySlotId, 
   const handleDecrement = () => {
     if (quantity > 0) {
       updateQuantity(item.id, daySlotId, quantity - 1);
+    }
+  };
+
+  const handleOptionChange = (option: ServingOption) => {
+    setSelectedOption(option);
+    // If item is already in cart, update the serving option there too
+    if (quantity > 0) {
+      updateServingOption(item.id, daySlotId, option);
     }
   };
 
@@ -109,7 +108,7 @@ export const MenuItemCard = memo(function MenuItemCard({ item, chef, daySlotId, 
           <div className="flex items-center gap-1 text-xs text-muted-foreground flex-wrap">
             <Link href={`/chef/${(chef as any).slug || chef.id}`}>
               <span className="font-medium text-foreground hover:text-primary transition-colors cursor-pointer">
-                {chef.name}
+                {getChefDisplayName(chef)}
               </span>
             </Link>
             {chef.distance !== undefined && (
@@ -138,22 +137,54 @@ export const MenuItemCard = memo(function MenuItemCard({ item, chef, daySlotId, 
             )}
           </div>
 
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex-1 min-w-0">
-              <h4 className="font-semibold text-foreground">{item.title}</h4>
-              {item.description && (
-                <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
-                  {item.description}
-                </p>
-              )}
-            </div>
-            <div className="text-right shrink-0">
-              <p className="font-semibold text-primary">{priceInfo.display}</p>
-              {priceInfo.label && (
-                <p className="text-xs text-muted-foreground">{priceInfo.label}</p>
-              )}
-            </div>
+          {/* Title and description — full width, no truncation */}
+          <div>
+            <h4 className="font-semibold text-foreground">{item.title}</h4>
+            {item.description && (
+              <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
+                {item.description}
+              </p>
+            )}
           </div>
+
+          {/* Serving options / price */}
+          {hasMultipleOptions ? (
+            <div className="space-y-1.5">
+              {servingOptions.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => handleOptionChange(option)}
+                  className={`w-full flex items-center justify-between px-3 py-1.5 rounded-md text-sm transition-colors ${
+                    selectedOption?.id === option.id
+                      ? "bg-primary/10 text-primary ring-1 ring-primary/30"
+                      : "hover:bg-muted/50 text-muted-foreground"
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <span className={`h-3.5 w-3.5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                      selectedOption?.id === option.id
+                        ? "border-primary"
+                        : "border-muted-foreground/40"
+                    }`}>
+                      {selectedOption?.id === option.id && (
+                        <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                      )}
+                    </span>
+                    <span>{option.label}</span>
+                  </span>
+                  <span className="font-semibold">${option.price.toFixed(2)}</span>
+                </button>
+              ))}
+            </div>
+          ) : selectedOption ? (
+            <p className="text-sm font-semibold text-primary">
+              ${selectedOption.price.toFixed(2)}
+              {selectedOption.label && (
+                <span className="font-normal text-muted-foreground"> · {selectedOption.label}</span>
+              )}
+            </p>
+          ) : null}
 
           {orderCutoffDate && (
             <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">

@@ -35,6 +35,7 @@ import { getCoordinatesFromZip } from "@/lib/location-store";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { getDistance } from "geolib";
+import { getChefDisplayName, getChefInitials } from "@/lib/chef-utils";
 import type { ChefProfile } from "@shared/schema";
 
 // Build a per-chef fulfillment schema dynamically
@@ -70,7 +71,7 @@ function validateDelivery(chef: ChefProfile, zip: string): { valid: boolean; err
   if (distanceMiles > chef.serviceRadius) {
     return {
       valid: false,
-      error: `This address is ${distanceMiles.toFixed(1)} miles away, outside ${chef.name}'s ${chef.serviceRadius} mile delivery radius.`,
+      error: `This address is ${distanceMiles.toFixed(1)} miles away, outside ${getChefDisplayName(chef)}'s ${chef.serviceRadius} mile delivery radius.`,
     };
   }
 
@@ -343,13 +344,13 @@ export default function Checkout() {
                       <CardHeader>
                         <div className="flex items-center gap-3">
                           <Avatar className="h-9 w-9">
-                            <AvatarImage src={chef?.profileImageUrl || undefined} alt={chef?.name} referrerPolicy="no-referrer" />
+                            <AvatarImage src={chef?.profileImageUrl || undefined} alt={getChefDisplayName(chef)} referrerPolicy="no-referrer" />
                             <AvatarFallback className="bg-primary/10 text-primary font-semibold text-xs">
-                              {chef?.name?.split(" ").map((n) => n[0]).join("").toUpperCase() || "?"}
+                              {getChefInitials(chef)}
                             </AvatarFallback>
                           </Avatar>
                           <CardTitle className="text-lg">
-                            {isMultiChef ? `Fulfillment — ${chef?.name}` : "Fulfillment Method"}
+                            {isMultiChef ? `Fulfillment — ${getChefDisplayName(chef)}` : "Fulfillment Method"}
                           </CardTitle>
                         </div>
                       </CardHeader>
@@ -494,7 +495,7 @@ export default function Checkout() {
                             render={({ field: notesField }) => (
                               <FormItem>
                                 <FormLabel>
-                                  {isMultiChef ? `Notes for ${chef?.name}` : "Order Notes"}
+                                  {isMultiChef ? `Notes for ${getChefDisplayName(chef)}` : "Order Notes"}
                                 </FormLabel>
                                 <FormControl>
                                   <Textarea
@@ -527,7 +528,7 @@ export default function Checkout() {
                       const fee = fulfillmentMethod === "delivery" && chef?.deliveryFee ? chef.deliveryFee : 0;
                       return (
                         <div key={chefId} className="space-y-2">
-                          <p className="text-sm font-medium">{chef?.name || "Chef"}</p>
+                          <p className="text-sm font-medium">{getChefDisplayName(chef)}</p>
                           <div className="space-y-1 pl-2">
                             {groupItems.map((item) => (
                               <div key={`${item.menuItem.id}-${item.daySlotId}`} className="flex justify-between text-xs text-muted-foreground">

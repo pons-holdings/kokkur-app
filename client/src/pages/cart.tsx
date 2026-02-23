@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { Header } from "@/components/header";
 import { useCartStore } from "@/lib/cart-store";
+import { getChefDisplayName, getChefInitials } from "@/lib/chef-utils";
 import { format, parseISO } from "date-fns";
 
 export default function Cart() {
@@ -100,14 +101,14 @@ export default function Cart() {
                   <Link href={chef ? `/chef/${chef.slug}` : "/"}>
                     <div className="flex items-center gap-3 cursor-pointer group">
                       <Avatar className="h-10 w-10">
-                        <AvatarImage src={chef?.profileImageUrl || undefined} alt={chef?.name} referrerPolicy="no-referrer" />
+                        <AvatarImage src={chef?.profileImageUrl || undefined} alt={getChefDisplayName(chef)} referrerPolicy="no-referrer" />
                         <AvatarFallback className="bg-primary/10 text-primary font-semibold text-sm">
-                          {chef?.name?.split(" ").map((n) => n[0]).join("").toUpperCase() || "?"}
+                          {getChefInitials(chef)}
                         </AvatarFallback>
                       </Avatar>
                       <div className="flex-1">
                         <p className="font-semibold group-hover:text-primary transition-colors">
-                          {chef?.name || "Chef"}
+                          {getChefDisplayName(chef)}
                         </p>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                           {chef?.fulfillmentMethod === "both" ? (
@@ -241,7 +242,7 @@ export default function Cart() {
                 {chefGroups.map(({ chefId, chef, subtotal, deliveryFee }) => (
                   <div key={chefId} className="space-y-1">
                     <div className="flex items-center justify-between text-sm">
-                      <span className="font-medium">{chef?.name || "Chef"}</span>
+                      <span className="font-medium">{getChefDisplayName(chef)}</span>
                       <span>${subtotal.toFixed(2)}</span>
                     </div>
                     {deliveryFee > 0 && (

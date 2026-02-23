@@ -867,8 +867,9 @@ export class DatabaseStorage implements IStorage {
     );
 
     const chef1 = await this.createChef({
-      slug: "chef-maria",
-      name: "Chef Maria Rodriguez",
+      slug: "maria-rodriguez",
+      firstName: "Maria",
+      lastName: "Rodriguez",
       bio: "Bringing authentic Mexican flavors to your table. Family recipes passed down through generations, made with love and the freshest local ingredients.",
       cuisineTags: ["Mexican", "Latin American", "Vegetarian-Friendly"],
       locationLat: 40.7484,
@@ -881,8 +882,9 @@ export class DatabaseStorage implements IStorage {
     });
 
     const chef2 = await this.createChef({
-      slug: "chef-antonio",
-      name: "Chef Antonio Russo",
+      slug: "antonio-russo",
+      firstName: "Antonio",
+      lastName: "Russo",
       bio: "Italian home cooking at its finest. From fresh pasta to wood-fired pizzas, every dish is crafted with passion and tradition.",
       cuisineTags: ["Italian", "Mediterranean", "Pasta"],
       locationLat: 40.7282,
@@ -895,8 +897,9 @@ export class DatabaseStorage implements IStorage {
     });
 
     const chef3 = await this.createChef({
-      slug: "chef-mei-lin",
-      name: "Chef Mei Lin",
+      slug: "mei-lin",
+      firstName: "Mei",
+      lastName: "Lin",
       bio: "Fusion cuisine blending Asian traditions with modern techniques. Healthy, flavorful, and beautifully presented dishes for any occasion.",
       cuisineTags: ["Asian Fusion", "Japanese", "Thai", "Healthy"],
       locationLat: 40.7193,
@@ -909,8 +912,9 @@ export class DatabaseStorage implements IStorage {
     });
 
     const chef4 = await this.createChef({
-      slug: "chef-luna",
-      name: "Chef Luna Reyes",
+      slug: "luna-reyes",
+      firstName: "Luna",
+      lastName: "Reyes",
       bio: "100% plant-based meals that prove vegan food can be bold, satisfying, and delicious. Zero compromise on flavor.",
       cuisineTags: ["Vegan", "Plant-Based", "Healthy"],
       locationLat: 40.7340,
@@ -923,8 +927,9 @@ export class DatabaseStorage implements IStorage {
     });
 
     const chef5 = await this.createChef({
-      slug: "chef-kenji",
-      name: "Chef Kenji Tanaka",
+      slug: "kenji-tanaka",
+      firstName: "Kenji",
+      lastName: "Tanaka",
       bio: "Authentic Japanese comfort food — from rich tonkotsu ramen to hand-rolled sushi, made with traditional techniques.",
       cuisineTags: ["Japanese", "Ramen", "Sushi"],
       locationLat: 40.7527,
@@ -936,8 +941,9 @@ export class DatabaseStorage implements IStorage {
     });
 
     const chef6 = await this.createChef({
-      slug: "chef-sophie",
-      name: "Chef Sophie Martin",
+      slug: "sophie-martin",
+      firstName: "Sophie",
+      lastName: "Martin",
       bio: "Parisian-trained pastry chef bringing artisan croissants, tarts, and cakes to your doorstep.",
       cuisineTags: ["Baked Goods", "French", "Pastry"],
       locationLat: 40.7654,
@@ -950,8 +956,9 @@ export class DatabaseStorage implements IStorage {
     });
 
     const chef7 = await this.createChef({
-      slug: "chef-marcus",
-      name: "Chef Marcus Williams",
+      slug: "marcus-williams",
+      firstName: "Marcus",
+      lastName: "Williams",
       bio: "Low-and-slow smoked meats with homemade rubs and sauces. Texas-style BBQ, Brooklyn soul.",
       cuisineTags: ["BBQ", "Southern", "Smoked Meats"],
       locationLat: 40.7128,
@@ -964,8 +971,9 @@ export class DatabaseStorage implements IStorage {
     });
 
     const chef8 = await this.createChef({
-      slug: "chef-denise",
-      name: "Chef Denise Jackson",
+      slug: "denise-jackson",
+      firstName: "Denise",
+      lastName: "Jackson",
       bio: "Harlem soul food rooted in family tradition. Collard greens, fried chicken, and mac & cheese like grandma made.",
       cuisineTags: ["Soul Food", "Southern", "Comfort Food"],
       locationLat: 40.8116,
@@ -978,8 +986,9 @@ export class DatabaseStorage implements IStorage {
     });
 
     const chef9 = await this.createChef({
-      slug: "chef-nadine",
-      name: "Chef Nadine Baptiste",
+      slug: "nadine-baptiste",
+      firstName: "Nadine",
+      lastName: "Baptiste",
       bio: "Island flavors from Jamaica and Haiti. Jerk chicken, oxtail stew, and plantains that transport you to the Caribbean.",
       cuisineTags: ["Caribbean", "Jamaican", "Haitian"],
       locationLat: 40.6694,
@@ -992,8 +1001,9 @@ export class DatabaseStorage implements IStorage {
     });
 
     const chef10 = await this.createChef({
-      slug: "chef-bobby",
-      name: "Chef Bobby Hayes",
+      slug: "bobby-hayes",
+      firstName: "Bobby",
+      lastName: "Hayes",
       bio: "Classic American comfort food done right. Burgers, meatloaf, and milkshakes — honest food, no fuss.",
       cuisineTags: ["Comfort Food", "American", "Diner"],
       locationLat: 40.7720,
@@ -1005,8 +1015,9 @@ export class DatabaseStorage implements IStorage {
     });
 
     const chef11 = await this.createChef({
-      slug: "chef-priya",
-      name: "Chef Priya Sharma",
+      slug: "priya-sharma",
+      firstName: "Priya",
+      lastName: "Sharma",
       bio: "Vibrant Indian home cooking. From butter chicken to dosas, every spice blend is ground fresh daily.",
       cuisineTags: ["Indian", "Curry", "Vegetarian-Friendly"],
       locationLat: 40.7497,

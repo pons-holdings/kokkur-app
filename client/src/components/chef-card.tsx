@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Heart, MapPin, Truck, Store, ChefHat } from "lucide-react";
 import { useFavoritesStore } from "@/lib/favorites-store";
+import { getChefDisplayName, getChefInitials } from "@/lib/chef-utils";
 import type { ChefProfileWithDaySlots } from "@shared/schema";
 
 interface ChefCardProps {
@@ -65,7 +66,7 @@ export const ChefCard = memo(function ChefCard({ chef }: ChefCardProps) {
             {sampleDishImage ? (
               <img 
                 src={sampleDishImage} 
-                alt={`Dish from ${chef.name}`}
+                alt={`Dish from ${getChefDisplayName(chef)}`}
                 className="w-full h-full object-cover"
               />
             ) : (
@@ -106,15 +107,15 @@ export const ChefCard = memo(function ChefCard({ chef }: ChefCardProps) {
           <div className="p-4 space-y-3">
             <div className="flex items-start gap-3">
               <Avatar className="h-11 w-11 ring-2 ring-background shadow-sm">
-                <AvatarImage src={chef.profileImageUrl || undefined} alt={chef.name} />
+                <AvatarImage src={chef.profileImageUrl || undefined} alt={getChefDisplayName(chef)} />
                 <AvatarFallback className="bg-primary/10 text-primary font-medium">
-                  {chef.name.split(" ").map((n) => n[0]).join("").toUpperCase()}
+                  {getChefInitials(chef)}
                 </AvatarFallback>
               </Avatar>
               
               <div className="flex-1 min-w-0">
                 <h3 className="font-semibold text-foreground truncate group-hover:text-primary transition-colors">
-                  {chef.name}
+                  {getChefDisplayName(chef)}
                 </h3>
                 {chef.locationName && (
                   <p className="text-sm text-muted-foreground truncate">

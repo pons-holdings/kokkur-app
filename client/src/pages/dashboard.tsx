@@ -122,7 +122,7 @@ export default function Dashboard() {
               <SelectContent>
                 {chefs.map((chef) => (
                   <SelectItem key={chef.id} value={chef.id.toString()}>
-                    {chef.name}
+                    {chef.firstName} {chef.lastName}
                   </SelectItem>
                 ))}
               </SelectContent>

@@ -44,7 +44,10 @@ export async function registerRoutes(
   });
 
   const updateChefSchema = z.object({
-    name: z.string().min(2).optional(),
+    firstName: z.string().min(1).optional(),
+    lastName: z.string().min(1).optional(),
+    email: z.string().email().nullable().optional(),
+    phone: z.string().nullable().optional(),
     slug: z.string()
       .min(3, "URL must be at least 3 characters")
       .max(100)
