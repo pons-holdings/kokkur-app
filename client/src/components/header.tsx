@@ -11,7 +11,9 @@ import {
   CircleUserRound,
 } from "lucide-react";
 import { KokkurIcon } from "@/components/kokkur-logo";
+import { NotificationBell } from "@/components/notification-bell";
 import { useCartStore } from "@/lib/cart-store";
+import { useBuyerStore } from "@/lib/buyer-store";
 import { useLocationStore } from "@/lib/location-store";
 import { useState, useEffect } from "react";
 import {
@@ -28,10 +30,12 @@ interface HeaderProps {
 export function Header({ onSearchChange, searchQuery = "" }: HeaderProps) {
   const [location] = useLocation();
   const itemCount = useCartStore((state) => state.getItemCount());
+  const buyerProfileId = useBuyerStore((state) => state.profileId);
   const { locationName, clearLocation } = useLocationStore();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const isHome = location === "/";
+  const showCompactSearch = isHome && scrolled && !!onSearchChange;
 
   useEffect(() => {
     const handleScroll = () => {
@@ -43,6 +47,7 @@ export function Header({ onSearchChange, searchQuery = "" }: HeaderProps) {
 
   const navLinks = [
     { href: "/", label: "Discover Chefs" },
+    { href: "/orders", label: "My Orders" },
     { href: "/dashboard", label: "Chef Dashboard" },
     { href: "/profile", label: "My Profile" },
   ];
@@ -58,12 +63,12 @@ export function Header({ onSearchChange, searchQuery = "" }: HeaderProps) {
         </Link>
 
         {/* Compact search bar - visible on scroll on home page */}
-        {isHome && scrolled && onSearchChange && (
-          <div className="hidden md:flex items-center gap-2 flex-1 max-w-md mx-4">
+        {showCompactSearch && (
+          <div className="flex items-center gap-2 flex-1 max-w-md mx-4 animate-in fade-in slide-in-from-top-2 duration-200">
             {locationName && (
               <div className="flex items-center gap-1 text-sm text-muted-foreground whitespace-nowrap">
                 <MapPin className="h-3.5 w-3.5 text-primary" />
-                <span className="max-w-[100px] truncate">{locationName}</span>
+                <span className="hidden sm:inline max-w-[100px] truncate">{locationName}</span>
               </div>
             )}
             <div className="relative flex-1">
@@ -88,22 +93,24 @@ export function Header({ onSearchChange, searchQuery = "" }: HeaderProps) {
           </div>
         )}
 
-        <nav className="hidden md:flex items-center gap-1">
-          {navLinks.map((link) => (
-            <Link key={link.href} href={link.href}>
-              <Button
-                variant={location === link.href ? "secondary" : "ghost"}
-                size="sm"
-                data-testid={`link-nav-${link.label.toLowerCase().replace(/\s+/g, "-")}`}
-              >
-                {link.label}
-              </Button>
-            </Link>
-          ))}
-        </nav>
+        {!showCompactSearch && (
+          <nav className="hidden md:flex items-center gap-1">
+            {navLinks.map((link) => (
+              <Link key={link.href} href={link.href}>
+                <Button
+                  variant={location === link.href ? "secondary" : "ghost"}
+                  size="sm"
+                  data-testid={`link-nav-${link.label.toLowerCase().replace(/\s+/g, "-")}`}
+                >
+                  {link.label}
+                </Button>
+              </Link>
+            ))}
+          </nav>
+        )}
 
         <div className="flex items-center gap-3">
-          {locationName && (
+          {locationName && !showCompactSearch && (
             <Button
               variant="outline"
               size="sm"
@@ -117,11 +124,13 @@ export function Header({ onSearchChange, searchQuery = "" }: HeaderProps) {
             </Button>
           )}
 
+          <NotificationBell recipientType="buyer" recipientId={buyerProfileId} />
+
           <Link href="/profile">
             <Button
               variant="ghost"
               size="icon"
-              className="h-9 w-9"
+              className={`h-9 w-9 ${showCompactSearch ? 'hidden sm:flex' : ''}`}
               data-testid="button-profile"
             >
               <CircleUserRound className="h-5 w-5" />

@@ -71,6 +71,11 @@ export async function registerRoutes(
       method: z.string(),
       handle: z.string(),
     })).nullable().optional(),
+    notificationPreferences: z.object({
+      inApp: z.boolean(),
+      email: z.boolean(),
+      text: z.boolean(),
+    }).optional(),
   });
 
   app.patch("/api/chefs/:id", async (req, res) => {
@@ -722,6 +727,7 @@ export async function registerRoutes(
 
   const createOrderSchema = z.object({
     chefId: z.number().int().positive(),
+    buyerProfileId: z.number().int().positive().optional().nullable(),
     buyerName: z.string().min(2).max(200),
     buyerEmail: z.string().email().max(254).optional().nullable(),
     buyerPhone: z.string().max(20).optional().nullable(),
@@ -730,9 +736,12 @@ export async function registerRoutes(
     deliveryAddress: z.string().max(500).optional().nullable(),
     deliveryLat: z.number().min(-90).max(90).optional().nullable(),
     deliveryLong: z.number().min(-180).max(180).optional().nullable(),
+    paymentMethod: z.string().max(50).optional().nullable(),
+    paymentHandle: z.string().max(200).optional().nullable(),
     notes: z.string().max(1000).optional().nullable(),
     items: z.array(z.object({
       menuItemId: z.number().int().positive(),
+      daySlotId: z.number().int().positive().optional().nullable(),
       quantity: z.number().int().min(1).max(100),
       priceAtOrder: z.number().min(0),
       itemTitle: z.string().max(200),
@@ -742,9 +751,10 @@ export async function registerRoutes(
   app.post("/api/orders", async (req, res) => {
     try {
       const data = createOrderSchema.parse(req.body);
-      
+
       const order = await storage.createOrder({
         chefId: data.chefId,
+        buyerProfileId: data.buyerProfileId,
         buyerName: data.buyerName,
         buyerEmail: data.buyerEmail,
         buyerPhone: data.buyerPhone,
@@ -753,23 +763,33 @@ export async function registerRoutes(
         deliveryAddress: data.deliveryAddress,
         deliveryLat: data.deliveryLat,
         deliveryLong: data.deliveryLong,
+        paymentMethod: data.paymentMethod,
+        paymentHandle: data.paymentHandle,
         notes: data.notes,
         status: "pending",
       });
-      
+
       const orderItemsData = data.items.map((item) => ({
         orderId: order.id,
         menuItemId: item.menuItemId,
+        daySlotId: item.daySlotId ?? null,
         quantity: item.quantity,
         priceAtOrder: item.priceAtOrder,
         itemTitle: item.itemTitle,
       }));
-      
+
       await storage.createOrderItems(orderItemsData);
-      
-      // Note: Stock is now tracked at the day-slot assignment level
-      // Future enhancement: decrement assignment stock when orders are placed
-      
+
+      // Create notification for the chef
+      await storage.createNotification({
+        recipientType: "chef",
+        recipientId: data.chefId,
+        type: "new_order",
+        title: "New Order",
+        message: `New order #${order.id} from ${data.buyerName} for $${data.totalAmount.toFixed(2)}`,
+        orderId: order.id,
+      });
+
       res.status(201).json(order);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -803,8 +823,23 @@ export async function registerRoutes(
   });
 
   const updateOrderStatusSchema = z.object({
-    status: z.enum(["pending", "confirmed", "preparing", "ready", "completed", "cancelled"]),
+    status: z.enum(["pending", "confirmed", "preparing", "paid", "ready", "completed", "cancelled"]),
   });
+
+  const validTransitions: Record<string, string[]> = {
+    pending: ["confirmed", "cancelled"],
+    confirmed: ["paid", "cancelled"],
+    paid: ["ready", "cancelled"],
+    ready: ["completed", "cancelled"],
+  };
+
+  const statusNotificationMap: Record<string, { type: "order_confirmed" | "order_paid" | "order_ready" | "order_completed" | "order_cancelled"; title: string }> = {
+    confirmed: { type: "order_confirmed", title: "Order Confirmed" },
+    paid: { type: "order_paid", title: "Payment Received" },
+    ready: { type: "order_ready", title: "Order Ready" },
+    completed: { type: "order_completed", title: "Order Completed" },
+    cancelled: { type: "order_cancelled", title: "Order Cancelled" },
+  };
 
   app.patch("/api/orders/:orderId", async (req, res) => {
     try {
@@ -812,14 +847,49 @@ export async function registerRoutes(
       if (isNaN(orderId)) {
         return res.status(400).json({ error: "Invalid order ID" });
       }
-      
+
       const data = updateOrderStatusSchema.parse(req.body);
+
+      // Fetch existing order for validation
+      const existingOrder = await storage.getOrderById(orderId);
+      if (!existingOrder) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+
+      // Validate status transition
+      const allowed = validTransitions[existingOrder.status];
+      if (allowed && !allowed.includes(data.status)) {
+        return res.status(400).json({
+          error: `Cannot transition from '${existingOrder.status}' to '${data.status}'`,
+        });
+      }
+
       const order = await storage.updateOrderStatus(orderId, data.status);
-      
+
       if (!order) {
         return res.status(404).json({ error: "Order not found" });
       }
-      
+
+      // Create notification for buyer if they have a profile
+      const notifInfo = statusNotificationMap[data.status];
+      if (notifInfo && existingOrder.buyerProfileId) {
+        const statusMessages: Record<string, string> = {
+          confirmed: `Your order #${orderId} has been confirmed by the chef.`,
+          paid: `Payment received for order #${orderId}. The chef will start preparing your food.`,
+          ready: `Your order #${orderId} is ready for ${existingOrder.fulfillmentMethod === "delivery" ? "delivery" : "pickup"}!`,
+          completed: `Your order #${orderId} has been completed. Enjoy your meal!`,
+          cancelled: `Your order #${orderId} has been cancelled.`,
+        };
+        await storage.createNotification({
+          recipientType: "buyer",
+          recipientId: existingOrder.buyerProfileId,
+          type: notifInfo.type,
+          title: notifInfo.title,
+          message: statusMessages[data.status] || `Order #${orderId} status updated to ${data.status}`,
+          orderId,
+        });
+      }
+
       res.json(order);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -830,7 +900,106 @@ export async function registerRoutes(
     }
   });
 
+  // Get orders by buyer profile (must be before :orderId to avoid matching "buyer" as an ID)
+  app.get("/api/orders/buyer/:buyerProfileId", async (req, res) => {
+    try {
+      const buyerProfileId = parseInt(req.params.buyerProfileId);
+      if (isNaN(buyerProfileId)) {
+        return res.status(400).json({ error: "Invalid buyer profile ID" });
+      }
+      const buyerOrders = await storage.getOrdersByBuyerProfileId(buyerProfileId);
+      res.json(buyerOrders);
+    } catch (error) {
+      console.error("Error fetching buyer orders:", error);
+      res.status(500).json({ error: "Failed to fetch buyer orders" });
+    }
+  });
+
+  // Get single order by ID
+  app.get("/api/orders/:orderId", async (req, res) => {
+    try {
+      const orderId = parseInt(req.params.orderId);
+      if (isNaN(orderId)) {
+        return res.status(400).json({ error: "Invalid order ID" });
+      }
+      const order = await storage.getOrderById(orderId);
+      if (!order) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+      res.json(order);
+    } catch (error) {
+      console.error("Error fetching order:", error);
+      res.status(500).json({ error: "Failed to fetch order" });
+    }
+  });
+
+  // Notification endpoints
+  app.get("/api/notifications/:recipientType/:recipientId", async (req, res) => {
+    try {
+      const { recipientType, recipientId: ridStr } = req.params;
+      const recipientId = parseInt(ridStr);
+      if (isNaN(recipientId) || !["chef", "buyer"].includes(recipientType)) {
+        return res.status(400).json({ error: "Invalid parameters" });
+      }
+      const notifs = await storage.getNotifications(recipientType, recipientId);
+      res.json(notifs);
+    } catch (error) {
+      console.error("Error fetching notifications:", error);
+      res.status(500).json({ error: "Failed to fetch notifications" });
+    }
+  });
+
+  app.get("/api/notifications/:recipientType/:recipientId/unread-count", async (req, res) => {
+    try {
+      const { recipientType, recipientId: ridStr } = req.params;
+      const recipientId = parseInt(ridStr);
+      if (isNaN(recipientId) || !["chef", "buyer"].includes(recipientType)) {
+        return res.status(400).json({ error: "Invalid parameters" });
+      }
+      const count = await storage.getUnreadNotificationCount(recipientType, recipientId);
+      res.json({ count });
+    } catch (error) {
+      console.error("Error fetching unread count:", error);
+      res.status(500).json({ error: "Failed to fetch unread count" });
+    }
+  });
+
+  app.patch("/api/notifications/:notificationId/read", async (req, res) => {
+    try {
+      const notificationId = parseInt(req.params.notificationId);
+      if (isNaN(notificationId)) {
+        return res.status(400).json({ error: "Invalid notification ID" });
+      }
+      await storage.markNotificationRead(notificationId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error marking notification read:", error);
+      res.status(500).json({ error: "Failed to mark notification read" });
+    }
+  });
+
+  app.post("/api/notifications/:recipientType/:recipientId/mark-all-read", async (req, res) => {
+    try {
+      const { recipientType, recipientId: ridStr } = req.params;
+      const recipientId = parseInt(ridStr);
+      if (isNaN(recipientId) || !["chef", "buyer"].includes(recipientType)) {
+        return res.status(400).json({ error: "Invalid parameters" });
+      }
+      await storage.markAllNotificationsRead(recipientType, recipientId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error marking all read:", error);
+      res.status(500).json({ error: "Failed to mark all read" });
+    }
+  });
+
   // Buyer Profile routes
+  const notificationPreferencesSchema = z.object({
+    inApp: z.boolean(),
+    email: z.boolean(),
+    text: z.boolean(),
+  }).optional();
+
   const createBuyerProfileSchema = z.object({
     sessionId: z.string().min(1),
     firstName: z.string().min(1).optional(),
@@ -845,6 +1014,7 @@ export async function registerRoutes(
     addressZip: z.string().length(5).optional(),
     addressLat: z.number().optional(),
     addressLong: z.number().optional(),
+    notificationPreferences: notificationPreferencesSchema,
   });
 
   const updateBuyerProfileSchema = z.object({
@@ -860,6 +1030,7 @@ export async function registerRoutes(
     addressZip: z.string().length(5).optional(),
     addressLat: z.number().optional(),
     addressLong: z.number().optional(),
+    notificationPreferences: notificationPreferencesSchema,
   });
 
   app.get("/api/buyer-profile/:sessionId", async (req, res) => {

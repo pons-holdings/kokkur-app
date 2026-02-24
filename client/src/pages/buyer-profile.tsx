@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,7 +28,8 @@ import { useBuyerStore } from "@/lib/buyer-store";
 import { getCoordinatesFromZip } from "@/lib/location-store";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { User, MapPin, AlertTriangle, Loader2, Upload, ImageIcon, X } from "lucide-react";
+import { User, MapPin, AlertTriangle, Loader2, Upload, ImageIcon, X, Bell } from "lucide-react";
+import { BuyerOrdersList } from "@/components/buyer-orders-list";
 import type { Allergen, BuyerProfileWithAllergens } from "@shared/schema";
 
 const US_STATES = [
@@ -222,6 +224,17 @@ export default function BuyerProfile() {
       <div className="container mx-auto max-w-2xl px-4 py-8">
         <h1 className="text-2xl font-bold mb-6">My Profile</h1>
 
+        <Tabs defaultValue="profile" className="space-y-6">
+          <TabsList>
+            <TabsTrigger value="profile">Profile</TabsTrigger>
+            <TabsTrigger value="orders">My Orders</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="orders">
+            <BuyerOrdersList buyerProfileId={profileId} />
+          </TabsContent>
+
+          <TabsContent value="profile">
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
             {/* Profile Photo */}
@@ -516,6 +529,36 @@ export default function BuyerProfile() {
               </Card>
             )}
 
+            {/* Notification Preferences */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <Bell className="h-5 w-5" />
+                  Notification Preferences
+                </CardTitle>
+                <CardDescription>How you'd like to receive updates about your orders</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="notif-in-app"
+                    checked={true}
+                    disabled
+                  />
+                  <label htmlFor="notif-in-app" className="text-sm font-normal">In-app notifications</label>
+                  <span className="text-xs text-muted-foreground">(always on)</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox id="notif-email" disabled />
+                  <label htmlFor="notif-email" className="text-sm font-normal text-muted-foreground">Email notifications (coming soon)</label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox id="notif-text" disabled />
+                  <label htmlFor="notif-text" className="text-sm font-normal text-muted-foreground">Text notifications (coming soon)</label>
+                </div>
+              </CardContent>
+            </Card>
+
             <Button
               type="submit"
               className="w-full"
@@ -532,6 +575,8 @@ export default function BuyerProfile() {
             </Button>
           </form>
         </Form>
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );

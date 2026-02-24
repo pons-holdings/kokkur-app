@@ -23,6 +23,7 @@ import {
   FormMessage,
   FormDescription,
 } from "@/components/ui/form";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Loader2,
   Upload,
@@ -35,6 +36,7 @@ import {
   Plus,
   CreditCard,
   Trash2,
+  Bell,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getCoordinatesFromZip, getLocationNameFromZip } from "@/lib/location-store";
@@ -741,6 +743,36 @@ export default function ProfileTab({ chef }: ProfileTabProps) {
                   </FormItem>
                 )}
               />
+            </CardContent>
+          </Card>
+
+          {/* Notification Preferences */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Bell className="h-5 w-5" />
+                Notification Preferences
+              </CardTitle>
+              <CardDescription>How you'd like to be notified about new orders</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="chef-notif-in-app"
+                  checked={true}
+                  disabled
+                />
+                <label htmlFor="chef-notif-in-app" className="text-sm font-normal">In-app notifications</label>
+                <span className="text-xs text-muted-foreground">(always on)</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Checkbox id="chef-notif-email" disabled />
+                <label htmlFor="chef-notif-email" className="text-sm font-normal text-muted-foreground">Email notifications (coming soon)</label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Checkbox id="chef-notif-text" disabled />
+                <label htmlFor="chef-notif-text" className="text-sm font-normal text-muted-foreground">Text notifications (coming soon)</label>
+              </div>
             </CardContent>
           </Card>
 

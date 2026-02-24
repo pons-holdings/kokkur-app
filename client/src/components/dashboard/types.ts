@@ -64,11 +64,24 @@ export const chefProfileSchema = z.object({
 
 export type ChefProfileFormData = z.infer<typeof chefProfileSchema>;
 
+export interface PrepListOrderDetail {
+  orderId: number;
+  buyerName: string;
+  quantity: number;
+}
+
 export interface PrepListItem {
   menuItemId: number;
   itemTitle: string;
   totalQuantity: number;
   orderCount: number;
+  orders: PrepListOrderDetail[];
+}
+
+export interface PrepListDayGroup {
+  daySlotId: number | null;
+  daySlotDate: string | null;
+  items: PrepListItem[];
 }
 
 export const defaultServingOptions: ServingOptionInput[] = [

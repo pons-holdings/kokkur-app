@@ -2,7 +2,7 @@ import {
   chefProfiles, menus, menuDaySlots, menuItems, menuItemAssignments, ingredients, allergens,
   itemIngredients, itemAllergens, orders, orderItems, userFavorites,
   servingOptions, itemPhotos, ingredientAllergens, assignmentServingOptions,
-  buyerProfiles, buyerAllergens,
+  buyerProfiles, buyerAllergens, notifications,
   type ChefProfile, type InsertChefProfile,
   type Menu, type InsertMenu,
   type MenuDaySlot, type InsertMenuDaySlot,
@@ -20,9 +20,10 @@ import {
   type MenuItemWithDetails, type MenuItemWithAssignment, type DaySlotWithItems, type MenuWithDaySlots, type ChefProfileWithDaySlots, type OrderWithItems,
   type AssignedServingOptionWithDetails,
   type BuyerProfile, type InsertBuyerProfile, type BuyerProfileWithAllergens,
+  type Notification, type InsertNotification,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, ilike, sql, inArray } from "drizzle-orm";
+import { eq, and, ilike, sql, inArray, desc } from "drizzle-orm";
 
 export interface IStorage {
   // Chefs
@@ -101,7 +102,16 @@ export interface IStorage {
   createOrder(order: InsertOrder): Promise<Order>;
   createOrderItems(items: InsertOrderItem[]): Promise<OrderItem[]>;
   getOrdersByChefId(chefId: number): Promise<OrderWithItems[]>;
+  getOrderById(orderId: number): Promise<OrderWithItems | undefined>;
+  getOrdersByBuyerProfileId(buyerProfileId: number): Promise<OrderWithItems[]>;
   updateOrderStatus(orderId: number, status: string): Promise<Order | undefined>;
+
+  // Notifications
+  createNotification(data: InsertNotification): Promise<Notification>;
+  getNotifications(recipientType: string, recipientId: number, limit?: number): Promise<Notification[]>;
+  getUnreadNotificationCount(recipientType: string, recipientId: number): Promise<number>;
+  markNotificationRead(notificationId: number): Promise<void>;
+  markAllNotificationsRead(recipientType: string, recipientId: number): Promise<void>;
 
   // Buyer Profiles
   getBuyerProfileBySessionId(sessionId: string): Promise<BuyerProfileWithAllergens | undefined>;
@@ -763,38 +773,153 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getOrdersByChefId(chefId: number): Promise<OrderWithItems[]> {
-    const ordersData = await db.select().from(orders).where(eq(orders.chefId, chefId));
+    const ordersData = await db.select().from(orders).where(eq(orders.chefId, chefId)).orderBy(desc(orders.createdAt));
     if (ordersData.length === 0) return [];
 
     // Batch fetch all order items in a single query
     const orderIds = ordersData.map(o => o.id);
     const allOrderItems = await db.select().from(orderItems).where(inArray(orderItems.orderId, orderIds));
 
-    // Group order items by order ID
-    const itemsByOrderId = new Map<number, typeof orderItems.$inferSelect[]>();
+    // Batch fetch day slots for items that have a daySlotId
+    const daySlotIds = [...new Set(allOrderItems.map(i => i.daySlotId).filter(Boolean))] as number[];
+    const daySlotMap = new Map<number, typeof menuDaySlots.$inferSelect>();
+    if (daySlotIds.length > 0) {
+      const daySlotRows = await db.select().from(menuDaySlots).where(inArray(menuDaySlots.id, daySlotIds));
+      for (const ds of daySlotRows) {
+        daySlotMap.set(ds.id, ds);
+      }
+    }
+
+    // Group order items by order ID, enriching with daySlot
+    const itemsByOrderId = new Map<number, (typeof orderItems.$inferSelect & { daySlot?: typeof menuDaySlots.$inferSelect | null })[]>();
     for (const item of allOrderItems) {
       const list = itemsByOrderId.get(item.orderId) || [];
-      list.push(item);
+      list.push({ ...item, daySlot: item.daySlotId ? daySlotMap.get(item.daySlotId) || null : null });
       itemsByOrderId.set(item.orderId, list);
     }
 
     // Fetch the chef once (all orders share the same chef)
     const chef = await this.getChefById(chefId);
 
+    // Batch fetch buyer profiles
+    const buyerProfileIds = [...new Set(ordersData.map(o => o.buyerProfileId).filter(Boolean))] as number[];
+    const buyerProfilesData = buyerProfileIds.length > 0
+      ? await db.select().from(buyerProfiles).where(inArray(buyerProfiles.id, buyerProfileIds))
+      : [];
+    const buyerProfileMap = new Map(buyerProfilesData.map(bp => [bp.id, bp]));
+
     return ordersData.map(order => ({
       ...order,
       items: itemsByOrderId.get(order.id) || [],
       chef,
+      buyerProfile: order.buyerProfileId ? buyerProfileMap.get(order.buyerProfileId) || null : null,
     }));
   }
 
   async updateOrderStatus(orderId: number, status: string): Promise<Order | undefined> {
     const [updated] = await db
       .update(orders)
-      .set({ status: status as any })
+      .set({ status: status as any, updatedAt: new Date() })
       .where(eq(orders.id, orderId))
       .returning();
     return updated;
+  }
+
+  async getOrderById(orderId: number): Promise<OrderWithItems | undefined> {
+    const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
+    if (!order) return undefined;
+
+    const items = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
+    const chef = await this.getChefById(order.chefId);
+    const buyerProfile = order.buyerProfileId
+      ? (await db.select().from(buyerProfiles).where(eq(buyerProfiles.id, order.buyerProfileId)))[0] || null
+      : null;
+
+    // Enrich items with daySlot data
+    const daySlotIds = [...new Set(items.map(i => i.daySlotId).filter(Boolean))] as number[];
+    const daySlotMap = new Map<number, typeof menuDaySlots.$inferSelect>();
+    if (daySlotIds.length > 0) {
+      const daySlotRows = await db.select().from(menuDaySlots).where(inArray(menuDaySlots.id, daySlotIds));
+      for (const ds of daySlotRows) daySlotMap.set(ds.id, ds);
+    }
+    const enrichedItems = items.map(item => ({
+      ...item,
+      daySlot: item.daySlotId ? daySlotMap.get(item.daySlotId) || null : null,
+    }));
+
+    return { ...order, items: enrichedItems, chef, buyerProfile };
+  }
+
+  async getOrdersByBuyerProfileId(buyerProfileId: number): Promise<OrderWithItems[]> {
+    const ordersData = await db.select().from(orders).where(eq(orders.buyerProfileId, buyerProfileId)).orderBy(desc(orders.createdAt));
+    if (ordersData.length === 0) return [];
+
+    const orderIds = ordersData.map(o => o.id);
+    const allOrderItems = await db.select().from(orderItems).where(inArray(orderItems.orderId, orderIds));
+
+    // Batch fetch day slots for items that have a daySlotId
+    const daySlotIds = [...new Set(allOrderItems.map(i => i.daySlotId).filter(Boolean))] as number[];
+    const daySlotMap = new Map<number, typeof menuDaySlots.$inferSelect>();
+    if (daySlotIds.length > 0) {
+      const daySlotRows = await db.select().from(menuDaySlots).where(inArray(menuDaySlots.id, daySlotIds));
+      for (const ds of daySlotRows) daySlotMap.set(ds.id, ds);
+    }
+
+    const itemsByOrderId = new Map<number, (typeof orderItems.$inferSelect & { daySlot?: typeof menuDaySlots.$inferSelect | null })[]>();
+    for (const item of allOrderItems) {
+      const list = itemsByOrderId.get(item.orderId) || [];
+      list.push({ ...item, daySlot: item.daySlotId ? daySlotMap.get(item.daySlotId) || null : null });
+      itemsByOrderId.set(item.orderId, list);
+    }
+
+    // Batch fetch chefs
+    const chefIds = [...new Set(ordersData.map(o => o.chefId))];
+    const chefsData = await db.select().from(chefProfiles).where(inArray(chefProfiles.id, chefIds));
+    const chefMap = new Map(chefsData.map(c => [c.id, c]));
+
+    return ordersData.map(order => ({
+      ...order,
+      items: itemsByOrderId.get(order.id) || [],
+      chef: chefMap.get(order.chefId),
+    }));
+  }
+
+  // Notifications
+  async createNotification(data: InsertNotification): Promise<Notification> {
+    const [notification] = await db.insert(notifications).values(data).returning();
+    return notification;
+  }
+
+  async getNotifications(recipientType: string, recipientId: number, limit = 50): Promise<Notification[]> {
+    return db.select().from(notifications)
+      .where(and(
+        eq(notifications.recipientType, recipientType),
+        eq(notifications.recipientId, recipientId),
+      ))
+      .orderBy(desc(notifications.createdAt))
+      .limit(limit);
+  }
+
+  async getUnreadNotificationCount(recipientType: string, recipientId: number): Promise<number> {
+    const result = await db.select({ count: sql<number>`count(*)` }).from(notifications)
+      .where(and(
+        eq(notifications.recipientType, recipientType),
+        eq(notifications.recipientId, recipientId),
+        eq(notifications.isRead, 0),
+      ));
+    return Number(result[0]?.count || 0);
+  }
+
+  async markNotificationRead(notificationId: number): Promise<void> {
+    await db.update(notifications).set({ isRead: 1 }).where(eq(notifications.id, notificationId));
+  }
+
+  async markAllNotificationsRead(recipientType: string, recipientId: number): Promise<void> {
+    await db.update(notifications).set({ isRead: 1 }).where(and(
+      eq(notifications.recipientType, recipientType),
+      eq(notifications.recipientId, recipientId),
+      eq(notifications.isRead, 0),
+    ));
   }
 
   // Buyer Profiles
@@ -839,14 +964,10 @@ export class DatabaseStorage implements IStorage {
 
   async seedData(): Promise<void> {
    try {
-    // Skip if data already exists
-    const [existing] = await db.select({ count: sql<number>`count(*)` }).from(chefProfiles);
-    if (existing.count > 0) {
-      console.log("Database already seeded, skipping...");
-      return;
-    }
-
-    // Clear all tables in dependency order (for fresh seed)
+    // Always re-seed: clear all tables and re-insert with fresh data
+    // This ensures seed orders have correct daySlotId values and up-to-date dates
+    await db.delete(buyerAllergens);
+    await db.delete(notifications);
     await db.delete(assignmentServingOptions);
     await db.delete(orderItems);
     await db.delete(orders);
@@ -862,6 +983,7 @@ export class DatabaseStorage implements IStorage {
     await db.delete(allergens);
     await db.delete(ingredients);
     await db.delete(userFavorites);
+    await db.delete(buyerProfiles);
     await db.delete(chefProfiles);
 
     console.log("Seeding database...");
@@ -1606,19 +1728,25 @@ export class DatabaseStorage implements IStorage {
 
     const MAX_DAYS = 100;
 
+    // Map from chef ID to their created day slots (for assigning to seed orders)
+    const chefDaySlots = new Map<number, MenuDaySlot[]>();
+
     for (const config of chefSlotConfigs) {
+      const slots: MenuDaySlot[] = [];
       for (let day = config.offset; day <= MAX_DAYS; day += config.interval) {
         const slot = await this.createDaySlot({
           chefId: config.chef.id,
           date: futureDate(day),
           orderCutoffDate: futureDate(day - 1),
         });
+        slots.push(slot);
         // Rotate items: not all items every day
         const itemsForSlot = config.items.filter((_, i) => (day + i) % 2 === 0 || i === 0);
         for (const item of itemsForSlot) {
           await this.assignItemToDaySlot(slot.id, item.id);
         }
       }
+      chefDaySlots.set(config.chef.id, slots);
     }
 
     // Add comprehensive ingredient-allergen mappings for auto-selection
@@ -1709,8 +1837,12 @@ export class DatabaseStorage implements IStorage {
       if (ingId) await this.addIngredientAllergen(ingId, findAllergen("Celery"));
     }
 
+    // Helper to get early upcoming slots for a chef (for seed orders)
+    const getSlots = (chefId: number) => chefDaySlots.get(chefId) || [];
+
     // Seed orders for all chefs
-    // Chef 1 (Maria) orders
+    // Chef 1 (Maria) orders — spread across first 2 upcoming slots
+    const maria_slots = getSlots(chef1.id);
     const order1 = await this.createOrder({
       chefId: chef1.id,
       buyerName: "Sarah Thompson",
@@ -1725,8 +1857,8 @@ export class DatabaseStorage implements IStorage {
       notes: "Please ring apartment 4B. No buzzer.",
     });
     await this.createOrderItems([
-      { orderId: order1.id, menuItemId: item1.id, quantity: 2, priceAtOrder: 16.99, itemTitle: "Chicken Enchiladas Verdes" },
-      { orderId: order1.id, menuItemId: item2.id, quantity: 1, priceAtOrder: 14.99, itemTitle: "Vegetarian Tamales" },
+      { orderId: order1.id, menuItemId: item1.id, daySlotId: maria_slots[0]?.id ?? null, quantity: 2, priceAtOrder: 16.99, itemTitle: "Chicken Enchiladas Verdes" },
+      { orderId: order1.id, menuItemId: item2.id, daySlotId: maria_slots[0]?.id ?? null, quantity: 1, priceAtOrder: 14.99, itemTitle: "Vegetarian Tamales" },
     ]);
 
     const order2 = await this.createOrder({
@@ -1740,7 +1872,7 @@ export class DatabaseStorage implements IStorage {
       notes: "Will pick up around 6pm",
     });
     await this.createOrderItems([
-      { orderId: order2.id, menuItemId: item3.id, quantity: 1, priceAtOrder: 34.99, itemTitle: "Carnitas Taco Platter" },
+      { orderId: order2.id, menuItemId: item3.id, daySlotId: maria_slots[1]?.id ?? null, quantity: 1, priceAtOrder: 34.99, itemTitle: "Carnitas Taco Platter" },
     ]);
 
     const order3 = await this.createOrder({
@@ -1755,10 +1887,11 @@ export class DatabaseStorage implements IStorage {
       deliveryLong: -73.9965,
     });
     await this.createOrderItems([
-      { orderId: order3.id, menuItemId: item1.id, quantity: 1, priceAtOrder: 29.99, itemTitle: "Chicken Enchiladas Verdes" },
+      { orderId: order3.id, menuItemId: item1.id, daySlotId: maria_slots[0]?.id ?? null, quantity: 1, priceAtOrder: 29.99, itemTitle: "Chicken Enchiladas Verdes" },
     ]);
 
-    // Chef 2 (Antonio) orders
+    // Chef 2 (Antonio) orders — spread across first 3 upcoming slots
+    const antonio_slots = getSlots(chef2.id);
     const order4 = await this.createOrder({
       chefId: chef2.id,
       buyerName: "Michael Park",
@@ -1773,9 +1906,9 @@ export class DatabaseStorage implements IStorage {
       notes: "Nut allergy - please double check ingredients",
     });
     await this.createOrderItems([
-      { orderId: order4.id, menuItemId: item4.id, quantity: 1, priceAtOrder: 24.99, itemTitle: "Homemade Lasagna" },
-      { orderId: order4.id, menuItemId: item5.id, quantity: 1, priceAtOrder: 32.99, itemTitle: "Fresh Fettuccine Alfredo" },
-      { orderId: order4.id, menuItemId: item6.id, quantity: 1, priceAtOrder: 19.99, itemTitle: "Chicken Parmesan" },
+      { orderId: order4.id, menuItemId: item4.id, daySlotId: antonio_slots[0]?.id ?? null, quantity: 1, priceAtOrder: 24.99, itemTitle: "Homemade Lasagna" },
+      { orderId: order4.id, menuItemId: item5.id, daySlotId: antonio_slots[0]?.id ?? null, quantity: 1, priceAtOrder: 32.99, itemTitle: "Fresh Fettuccine Alfredo" },
+      { orderId: order4.id, menuItemId: item6.id, daySlotId: antonio_slots[1]?.id ?? null, quantity: 1, priceAtOrder: 19.99, itemTitle: "Chicken Parmesan" },
     ]);
 
     const order5 = await this.createOrder({
@@ -1789,8 +1922,8 @@ export class DatabaseStorage implements IStorage {
       notes: "Picking up for a dinner party. Need by 5:30pm.",
     });
     await this.createOrderItems([
-      { orderId: order5.id, menuItemId: item4.id, quantity: 1, priceAtOrder: 44.99, itemTitle: "Homemade Lasagna" },
-      { orderId: order5.id, menuItemId: item7.id, quantity: 1, priceAtOrder: 49.99, itemTitle: "Tiramisu" },
+      { orderId: order5.id, menuItemId: item4.id, daySlotId: antonio_slots[1]?.id ?? null, quantity: 1, priceAtOrder: 44.99, itemTitle: "Homemade Lasagna" },
+      { orderId: order5.id, menuItemId: item7.id, daySlotId: antonio_slots[1]?.id ?? null, quantity: 1, priceAtOrder: 49.99, itemTitle: "Tiramisu" },
     ]);
 
     const order6 = await this.createOrder({
@@ -1798,11 +1931,11 @@ export class DatabaseStorage implements IStorage {
       buyerName: "David Kim",
       buyerEmail: "dkim@email.com",
       totalAmount: 19.99,
-      status: "preparing",
+      status: "paid",
       fulfillmentMethod: "pickup",
     });
     await this.createOrderItems([
-      { orderId: order6.id, menuItemId: item6.id, quantity: 1, priceAtOrder: 19.99, itemTitle: "Chicken Parmesan" },
+      { orderId: order6.id, menuItemId: item6.id, daySlotId: antonio_slots[2]?.id ?? null, quantity: 1, priceAtOrder: 19.99, itemTitle: "Chicken Parmesan" },
     ]);
 
     const order7 = await this.createOrder({
@@ -1817,11 +1950,12 @@ export class DatabaseStorage implements IStorage {
       deliveryLong: -73.9910,
     });
     await this.createOrderItems([
-      { orderId: order7.id, menuItemId: item5.id, quantity: 1, priceAtOrder: 32.99, itemTitle: "Fresh Fettuccine Alfredo" },
-      { orderId: order7.id, menuItemId: item7.id, quantity: 1, priceAtOrder: 9.99, itemTitle: "Tiramisu" },
+      { orderId: order7.id, menuItemId: item5.id, daySlotId: antonio_slots[0]?.id ?? null, quantity: 1, priceAtOrder: 32.99, itemTitle: "Fresh Fettuccine Alfredo" },
+      { orderId: order7.id, menuItemId: item7.id, daySlotId: antonio_slots[0]?.id ?? null, quantity: 1, priceAtOrder: 9.99, itemTitle: "Tiramisu" },
     ]);
 
-    // Chef 3 (Mei Lin) orders
+    // Chef 3 (Mei Lin) orders — spread across first 2 upcoming slots
+    const mei_slots = getSlots(chef3.id);
     const order8 = await this.createOrder({
       chefId: chef3.id,
       buyerName: "Alex Rivera",
@@ -1836,9 +1970,9 @@ export class DatabaseStorage implements IStorage {
       notes: "Leave at door, apartment 2A",
     });
     await this.createOrderItems([
-      { orderId: order8.id, menuItemId: item8.id, quantity: 1, priceAtOrder: 21.99, itemTitle: "Teriyaki Salmon Bowl" },
-      { orderId: order8.id, menuItemId: item9.id, quantity: 1, priceAtOrder: 16.99, itemTitle: "Pad Thai" },
-      { orderId: order8.id, menuItemId: item10.id, quantity: 1, priceAtOrder: 17.99, itemTitle: "Thai Green Curry" },
+      { orderId: order8.id, menuItemId: item8.id, daySlotId: mei_slots[0]?.id ?? null, quantity: 1, priceAtOrder: 21.99, itemTitle: "Teriyaki Salmon Bowl" },
+      { orderId: order8.id, menuItemId: item9.id, daySlotId: mei_slots[0]?.id ?? null, quantity: 1, priceAtOrder: 16.99, itemTitle: "Pad Thai" },
+      { orderId: order8.id, menuItemId: item10.id, daySlotId: mei_slots[1]?.id ?? null, quantity: 1, priceAtOrder: 17.99, itemTitle: "Thai Green Curry" },
     ]);
 
     const order9 = await this.createOrder({
@@ -1854,9 +1988,9 @@ export class DatabaseStorage implements IStorage {
       deliveryLong: -73.9895,
     });
     await this.createOrderItems([
-      { orderId: order9.id, menuItemId: item10.id, quantity: 1, priceAtOrder: 17.99, itemTitle: "Thai Green Curry" },
-      { orderId: order9.id, menuItemId: item11.id, quantity: 1, priceAtOrder: 8.99, itemTitle: "Vegetable Spring Rolls" },
-      { orderId: order9.id, menuItemId: item12.id, quantity: 1, priceAtOrder: 15.99, itemTitle: "Miso Glazed Tofu Bowl" },
+      { orderId: order9.id, menuItemId: item10.id, daySlotId: mei_slots[1]?.id ?? null, quantity: 1, priceAtOrder: 17.99, itemTitle: "Thai Green Curry" },
+      { orderId: order9.id, menuItemId: item11.id, daySlotId: mei_slots[0]?.id ?? null, quantity: 1, priceAtOrder: 8.99, itemTitle: "Vegetable Spring Rolls" },
+      { orderId: order9.id, menuItemId: item12.id, daySlotId: mei_slots[0]?.id ?? null, quantity: 1, priceAtOrder: 15.99, itemTitle: "Miso Glazed Tofu Bowl" },
     ]);
 
     const order10 = await this.createOrder({
@@ -1872,8 +2006,8 @@ export class DatabaseStorage implements IStorage {
       notes: "No peanuts please - severe allergy",
     });
     await this.createOrderItems([
-      { orderId: order10.id, menuItemId: item8.id, quantity: 1, priceAtOrder: 21.99, itemTitle: "Teriyaki Salmon Bowl" },
-      { orderId: order10.id, menuItemId: item11.id, quantity: 1, priceAtOrder: 8.99, itemTitle: "Vegetable Spring Rolls" },
+      { orderId: order10.id, menuItemId: item8.id, daySlotId: mei_slots[1]?.id ?? null, quantity: 1, priceAtOrder: 21.99, itemTitle: "Teriyaki Salmon Bowl" },
+      { orderId: order10.id, menuItemId: item11.id, daySlotId: mei_slots[1]?.id ?? null, quantity: 1, priceAtOrder: 8.99, itemTitle: "Vegetable Spring Rolls" },
     ]);
 
     const order11 = await this.createOrder({
@@ -1888,8 +2022,121 @@ export class DatabaseStorage implements IStorage {
       deliveryLong: -73.9908,
     });
     await this.createOrderItems([
-      { orderId: order11.id, menuItemId: item10.id, quantity: 1, priceAtOrder: 59.99, itemTitle: "Thai Green Curry" },
+      { orderId: order11.id, menuItemId: item10.id, daySlotId: mei_slots[0]?.id ?? null, quantity: 1, priceAtOrder: 59.99, itemTitle: "Thai Green Curry" },
     ]);
+
+    // ── Programmatic order generation: spread orders across all chefs through June 2026 ──
+    const buyerPool = [
+      { name: "Sarah Thompson", email: "sarah.t@email.com", phone: "212-555-0142" },
+      { name: "James Wilson", email: "jwilson@email.com", phone: "212-555-0198" },
+      { name: "Emily Chen", email: "emily.chen@email.com", phone: "212-555-0267" },
+      { name: "Michael Park", email: "mpark@email.com", phone: "212-555-0234" },
+      { name: "Lisa Martinez", email: "lisa.m@email.com", phone: "212-555-0311" },
+      { name: "David Kim", email: "dkim@email.com", phone: "212-555-0389" },
+      { name: "Alex Rivera", email: "alex.r@email.com", phone: "212-555-0456" },
+      { name: "Priya Patel", email: "priya.p@email.com", phone: "212-555-0523" },
+      { name: "Tom Bradley", email: "tbradley@email.com", phone: "212-555-0590" },
+      { name: "Nina Simmons", email: "nina.s@email.com", phone: "212-555-0612" },
+      { name: "Rachel Green", email: "rachel.g@email.com", phone: "212-555-0678" },
+      { name: "Chris Anderson", email: "c.anderson@email.com", phone: "212-555-0734" },
+      { name: "Maria Santos", email: "m.santos@email.com", phone: "212-555-0801" },
+      { name: "Ben Taylor", email: "btaylor@email.com", phone: "212-555-0856" },
+      { name: "Jessica Wu", email: "j.wu@email.com", phone: "212-555-0923" },
+      { name: "Omar Hassan", email: "o.hassan@email.com", phone: "212-555-0978" },
+    ];
+    const orderStatuses: ("pending" | "confirmed" | "paid")[] = ["pending", "confirmed", "paid", "pending", "confirmed"];
+    const orderNotes = [
+      "Please ring apartment 4B.",
+      null,
+      "Leave at door please",
+      "Will pick up around 6pm",
+      null,
+      "No peanuts - severe allergy",
+      null,
+      "Picking up for a dinner party",
+      "Call when arriving please",
+      null,
+    ];
+    const deliveryAddresses = [
+      { address: "245 W 25th St, New York, NY 10001", lat: 40.7448, long: -73.9946 },
+      { address: "312 E 9th St, New York, NY 10003", lat: 40.7291, long: -73.9891 },
+      { address: "150 Orchard St, New York, NY 10002", lat: 40.7201, long: -73.9886 },
+      { address: "88 E 10th St, New York, NY 10003", lat: 40.7300, long: -73.9910 },
+      { address: "200 Allen St, New York, NY 10002", lat: 40.7220, long: -73.9895 },
+      { address: "78 Rivington St, New York, NY 10002", lat: 40.7198, long: -73.9903 },
+    ];
+
+    // Build a price lookup from the first serving option of each item
+    const itemPrices = new Map<number, number>();
+    const itemTitles = new Map<number, string>();
+    for (const config of chefSlotConfigs) {
+      for (const it of config.items) {
+        const opts = await db.select().from(servingOptions).where(eq(servingOptions.menuItemId, it.id));
+        const defaultOpt = opts.find(o => o.isDefault === 1) || opts[0];
+        if (defaultOpt) itemPrices.set(it.id, defaultOpt.price);
+        const [mi] = await db.select().from(menuItems).where(eq(menuItems.id, it.id));
+        if (mi) itemTitles.set(it.id, mi.title);
+      }
+    }
+
+    let buyerIdx = 0;
+    let orderIdx = 0;
+    for (const config of chefSlotConfigs) {
+      const slots = chefDaySlots.get(config.chef.id) || [];
+      // For chefs 1-3 (already have hand-crafted orders on first few slots), start later
+      const startSlot = [chef1.id, chef2.id, chef3.id].includes(config.chef.id) ? 3 : 0;
+
+      for (let si = startSlot; si < slots.length; si += 3) {
+        const slot = slots[si];
+        const buyer = buyerPool[buyerIdx % buyerPool.length];
+        const status = orderStatuses[orderIdx % orderStatuses.length];
+        const isDelivery = orderIdx % 2 === 0;
+        const note = orderNotes[orderIdx % orderNotes.length];
+        const addr = deliveryAddresses[orderIdx % deliveryAddresses.length];
+
+        // Pick 1-2 items from the chef's menu (rotate)
+        const numItems = (orderIdx % 3 === 0) ? 2 : 1;
+        const orderItemsData: { menuItemId: number; title: string; price: number; quantity: number }[] = [];
+        for (let ii = 0; ii < numItems; ii++) {
+          const it = config.items[(si + ii) % config.items.length];
+          const price = itemPrices.get(it.id) ?? 15.99;
+          const title = itemTitles.get(it.id) ?? "Menu Item";
+          const qty = ii === 0 ? (orderIdx % 4 === 0 ? 2 : 1) : 1;
+          orderItemsData.push({ menuItemId: it.id, title, price, quantity: qty });
+        }
+
+        const totalAmount = orderItemsData.reduce((sum, oi) => sum + oi.price * oi.quantity, 0);
+        const totalRounded = Math.round(totalAmount * 100) / 100;
+
+        const newOrder = await this.createOrder({
+          chefId: config.chef.id,
+          buyerName: buyer.name,
+          buyerEmail: buyer.email,
+          buyerPhone: buyer.phone,
+          totalAmount: totalRounded,
+          status,
+          fulfillmentMethod: isDelivery ? "delivery" : "pickup",
+          deliveryAddress: isDelivery ? addr.address : undefined,
+          deliveryLat: isDelivery ? addr.lat : undefined,
+          deliveryLong: isDelivery ? addr.long : undefined,
+          notes: note ?? undefined,
+        });
+
+        await this.createOrderItems(
+          orderItemsData.map(oi => ({
+            orderId: newOrder.id,
+            menuItemId: oi.menuItemId,
+            daySlotId: slot.id,
+            quantity: oi.quantity,
+            priceAtOrder: oi.price,
+            itemTitle: oi.title,
+          }))
+        );
+
+        buyerIdx++;
+        orderIdx++;
+      }
+    }
 
     // Verify seed data completeness
     const [chefCount] = await db.select({ count: sql<number>`count(*)` }).from(chefProfiles);

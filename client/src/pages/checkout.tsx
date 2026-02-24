@@ -36,6 +36,8 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { getDistance } from "geolib";
 import { getChefDisplayName, getChefInitials } from "@/lib/chef-utils";
+import { getPaymentMethodLabel } from "@/lib/payment-utils";
+import { useBuyerStore } from "@/lib/buyer-store";
 import type { ChefProfile } from "@shared/schema";
 
 // Build a per-chef fulfillment schema dynamically
@@ -44,6 +46,8 @@ const chefFulfillmentSchema = z.object({
   fulfillmentMethod: z.enum(["pickup", "delivery"]),
   deliveryAddress: z.string().optional(),
   deliveryZip: z.string().optional(),
+  paymentMethod: z.string().optional(),
+  paymentHandle: z.string().optional(),
   notes: z.string().optional(),
 });
 
@@ -81,6 +85,7 @@ function validateDelivery(chef: ChefProfile, zip: string): { valid: boolean; err
 export default function Checkout() {
   const [, navigate] = useLocation();
   const { items, getTotal, getItemsByChef, clearCart } = useCartStore();
+  const { profileId: buyerProfileId } = useBuyerStore();
   const { toast } = useToast();
   const [deliveryErrors, setDeliveryErrors] = useState<Record<number, string | null>>({});
 
@@ -98,13 +103,18 @@ export default function Checkout() {
       buyerName: "",
       buyerEmail: "",
       buyerPhone: "",
-      chefFulfillments: chefGroups.map(({ chefId, chef }) => ({
-        chefId,
-        fulfillmentMethod: chef?.fulfillmentMethod === "pickup" ? "pickup" as const : "delivery" as const,
-        deliveryAddress: "",
-        deliveryZip: "",
-        notes: "",
-      })),
+      chefFulfillments: chefGroups.map(({ chefId, chef }) => {
+        const paymentMethods = (chef?.paymentMethods as Array<{ method: string; handle: string }>) || [];
+        return {
+          chefId,
+          fulfillmentMethod: chef?.fulfillmentMethod === "pickup" ? "pickup" as const : "delivery" as const,
+          deliveryAddress: "",
+          deliveryZip: "",
+          paymentMethod: paymentMethods[0]?.method || "",
+          paymentHandle: paymentMethods[0]?.handle || "",
+          notes: "",
+        };
+      }),
     },
   });
 
@@ -147,6 +157,7 @@ export default function Checkout() {
 
         const orderData = {
           chefId,
+          buyerProfileId: buyerProfileId || null,
           buyerName: data.buyerName,
           buyerEmail: data.buyerEmail,
           buyerPhone: data.buyerPhone,
@@ -155,9 +166,12 @@ export default function Checkout() {
           deliveryAddress: fulfillment.fulfillmentMethod === "delivery" ? fulfillment.deliveryAddress : null,
           deliveryLat: coords?.lat || null,
           deliveryLong: coords?.lng || null,
+          paymentMethod: fulfillment.paymentMethod || null,
+          paymentHandle: fulfillment.paymentHandle || null,
           notes: fulfillment.notes || null,
           items: items.map((item) => ({
             menuItemId: item.menuItem.id,
+            daySlotId: item.daySlotId || null,
             quantity: item.quantity,
             priceAtOrder: item.servingOption.price,
             itemTitle: item.menuItem.title,
@@ -486,6 +500,39 @@ export default function Checkout() {
                             />
                           </div>
                         )}
+
+                        {/* Payment Method Selection */}
+                        {(() => {
+                          const paymentMethods = (chef?.paymentMethods as Array<{ method: string; handle: string }>) || [];
+                          if (paymentMethods.length === 0) return null;
+                          return (
+                            <div className="pt-4 border-t space-y-3">
+                              <Label className="text-sm font-medium">Payment Method</Label>
+                              <p className="text-xs text-muted-foreground -mt-1">
+                                Select how you'll pay {getChefDisplayName(chef)} (payment collected externally)
+                              </p>
+                              <RadioGroup
+                                value={form.watch(`chefFulfillments.${idx}.paymentMethod`)}
+                                onValueChange={(value) => {
+                                  form.setValue(`chefFulfillments.${idx}.paymentMethod`, value);
+                                  const pm = paymentMethods.find((p) => p.method === value);
+                                  form.setValue(`chefFulfillments.${idx}.paymentHandle`, pm?.handle || "");
+                                }}
+                                className="space-y-2"
+                              >
+                                {paymentMethods.map((pm) => (
+                                  <div key={pm.method} className="flex items-center space-x-3">
+                                    <RadioGroupItem value={pm.method} id={`pm-${idx}-${pm.method}`} />
+                                    <Label htmlFor={`pm-${idx}-${pm.method}`} className="flex items-center gap-2 cursor-pointer text-sm font-normal">
+                                      {getPaymentMethodLabel(pm.method)}
+                                      {pm.handle && <span className="text-muted-foreground">({pm.handle})</span>}
+                                    </Label>
+                                  </div>
+                                ))}
+                              </RadioGroup>
+                            </div>
+                          );
+                        })()}
 
                         {/* Order notes per chef */}
                         <div className="pt-4 border-t">

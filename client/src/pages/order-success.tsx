@@ -1,7 +1,7 @@
 import { Link } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { CheckCircle, UtensilsCrossed, ArrowRight } from "lucide-react";
+import { CheckCircle, UtensilsCrossed, ArrowRight, ClipboardList } from "lucide-react";
 import { Header } from "@/components/header";
 
 export default function OrderSuccess() {
@@ -29,22 +29,22 @@ export default function OrderSuccess() {
                 <strong>What happens next?</strong>
               </p>
               <p className="mt-2">
-                In a full implementation, you would receive an email confirmation
-                with order details and pickup/delivery information for each chef.
+                Your chef has been notified and will confirm your order shortly.
+                You can track your order status in real-time from the My Orders page.
               </p>
             </div>
 
             <div className="flex flex-col sm:flex-row gap-3 justify-center pt-4">
-              <Link href="/">
-                <Button data-testid="button-browse-more">
-                  <UtensilsCrossed className="h-4 w-4 mr-2" />
-                  Browse More Menus
+              <Link href="/orders">
+                <Button data-testid="button-track-orders">
+                  <ClipboardList className="h-4 w-4 mr-2" />
+                  Track My Orders
                 </Button>
               </Link>
-              <Link href="/dashboard">
-                <Button variant="outline" data-testid="button-view-dashboard">
-                  View Chef Dashboard
-                  <ArrowRight className="h-4 w-4 ml-2" />
+              <Link href="/">
+                <Button variant="outline" data-testid="button-browse-more">
+                  <UtensilsCrossed className="h-4 w-4 mr-2" />
+                  Browse More Menus
                 </Button>
               </Link>
             </div>

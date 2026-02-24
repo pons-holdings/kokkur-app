@@ -7,7 +7,10 @@ import { z } from "zod";
 export const userRoleEnum = pgEnum("user_role", ["chef", "buyer"]);
 export const fulfillmentMethodEnum = pgEnum("fulfillment_method", ["pickup", "delivery", "both"]);
 export const menuStatusEnum = pgEnum("menu_status", ["draft", "active", "archived"]);
-export const orderStatusEnum = pgEnum("order_status", ["pending", "confirmed", "preparing", "ready", "completed", "cancelled"]);
+export const orderStatusEnum = pgEnum("order_status", ["pending", "confirmed", "preparing", "paid", "ready", "completed", "cancelled"]);
+export const notificationTypeEnum = pgEnum("notification_type", [
+  "new_order", "order_confirmed", "order_paid", "order_ready", "order_completed", "order_cancelled"
+]);
 
 // Chef Profiles
 export const chefProfiles = pgTable("chef_profiles", {
@@ -32,6 +35,7 @@ export const chefProfiles = pgTable("chef_profiles", {
   fulfillmentMethod: fulfillmentMethodEnum("fulfillment_method").notNull().default("both"),
   deliveryFee: real("delivery_fee").default(0),
   paymentMethods: jsonb("payment_methods").default([]),
+  notificationPreferences: jsonb("notification_preferences").default({ inApp: true, email: false, text: false }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -158,6 +162,7 @@ export const itemAllergens = pgTable("item_allergens", {
 export const orders = pgTable("orders", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   chefId: integer("chef_id").notNull().references(() => chefProfiles.id),
+  buyerProfileId: integer("buyer_profile_id").references(() => buyerProfiles.id),
   buyerName: text("buyer_name").notNull(),
   buyerEmail: text("buyer_email"),
   buyerPhone: text("buyer_phone"),
@@ -167,11 +172,15 @@ export const orders = pgTable("orders", {
   deliveryAddress: text("delivery_address"),
   deliveryLat: real("delivery_lat"),
   deliveryLong: real("delivery_long"),
+  paymentMethod: text("payment_method"),
+  paymentHandle: text("payment_handle"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("orders_chef_id_idx").on(table.chefId),
   index("orders_status_idx").on(table.status),
+  index("orders_buyer_profile_id_idx").on(table.buyerProfileId),
 ]);
 
 // Order Items
@@ -179,11 +188,13 @@ export const orderItems = pgTable("order_items", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   orderId: integer("order_id").notNull().references(() => orders.id, { onDelete: "cascade" }),
   menuItemId: integer("menu_item_id").notNull().references(() => menuItems.id),
+  daySlotId: integer("day_slot_id").references(() => menuDaySlots.id),
   quantity: integer("quantity").notNull(),
   priceAtOrder: real("price_at_order").notNull(),
   itemTitle: text("item_title").notNull(),
 }, (table) => [
   index("order_items_order_id_idx").on(table.orderId),
+  index("order_items_day_slot_id_idx").on(table.daySlotId),
 ]);
 
 // User Favorites (for demo, stored in localStorage, but schema for future)
@@ -192,6 +203,22 @@ export const userFavorites = pgTable("user_favorites", {
   chefId: integer("chef_id").notNull().references(() => chefProfiles.id, { onDelete: "cascade" }),
   sessionId: text("session_id").notNull(),
 }, (table) => [
+]);
+
+// Notifications
+export const notifications = pgTable("notifications", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  recipientType: text("recipient_type").notNull(),
+  recipientId: integer("recipient_id").notNull(),
+  type: notificationTypeEnum("type").notNull(),
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  orderId: integer("order_id").references(() => orders.id, { onDelete: "cascade" }),
+  isRead: integer("is_read").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("notifications_recipient_idx").on(table.recipientType, table.recipientId),
+  index("notifications_recipient_read_idx").on(table.recipientType, table.recipientId, table.isRead),
 ]);
 
 // Buyer Profiles
@@ -210,6 +237,7 @@ export const buyerProfiles = pgTable("buyer_profiles", {
   addressZip: text("address_zip"),
   addressLat: real("address_lat"),
   addressLong: real("address_long"),
+  notificationPreferences: jsonb("notification_preferences").default({ inApp: true, email: false, text: false }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -345,6 +373,10 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
     fields: [orders.chefId],
     references: [chefProfiles.id],
   }),
+  buyerProfile: one(buyerProfiles, {
+    fields: [orders.buyerProfileId],
+    references: [buyerProfiles.id],
+  }),
   items: many(orderItems),
 }));
 
@@ -357,6 +389,10 @@ export const orderItemsRelations = relations(orderItems, ({ one }) => ({
     fields: [orderItems.menuItemId],
     references: [menuItems.id],
   }),
+  daySlot: one(menuDaySlots, {
+    fields: [orderItems.daySlotId],
+    references: [menuDaySlots.id],
+  }),
 }));
 
 export const userFavoritesRelations = relations(userFavorites, ({ one }) => ({
@@ -368,6 +404,14 @@ export const userFavoritesRelations = relations(userFavorites, ({ one }) => ({
 
 export const buyerProfilesRelations = relations(buyerProfiles, ({ many }) => ({
   allergens: many(buyerAllergens),
+  orders: many(orders),
+}));
+
+export const notificationsRelations = relations(notifications, ({ one }) => ({
+  order: one(orders, {
+    fields: [notifications.orderId],
+    references: [orders.id],
+  }),
 }));
 
 export const buyerAllergensRelations = relations(buyerAllergens, ({ one }) => ({
@@ -393,7 +437,8 @@ export const insertItemPhotoSchema = createInsertSchema(itemPhotos).omit({ id: t
 export const insertIngredientSchema = createInsertSchema(ingredients).omit({ id: true });
 export const insertAllergenSchema = createInsertSchema(allergens).omit({ id: true });
 export const insertIngredientAllergenSchema = createInsertSchema(ingredientAllergens);
-export const insertOrderSchema = createInsertSchema(orders).omit({ id: true, createdAt: true });
+export const insertOrderSchema = createInsertSchema(orders).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertNotificationSchema = createInsertSchema(notifications).omit({ id: true, createdAt: true });
 export const insertOrderItemSchema = createInsertSchema(orderItems).omit({ id: true });
 export const insertItemIngredientSchema = createInsertSchema(itemIngredients);
 export const insertItemAllergenSchema = createInsertSchema(itemAllergens);
@@ -438,6 +483,8 @@ export type BuyerProfile = typeof buyerProfiles.$inferSelect;
 export type InsertBuyerProfile = z.infer<typeof insertBuyerProfileSchema>;
 export type BuyerAllergen = typeof buyerAllergens.$inferSelect;
 export type InsertBuyerAllergen = z.infer<typeof insertBuyerAllergenSchema>;
+export type Notification = typeof notifications.$inferSelect;
+export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 
 // Extended types for API responses
 export type IngredientWithAllergens = Ingredient & {
@@ -487,8 +534,9 @@ export type ChefProfileWithDaySlots = ChefProfile & {
 export type ChefProfileWithMenus = ChefProfileWithDaySlots;
 
 export type OrderWithItems = Order & {
-  items: (OrderItem & { menuItem?: MenuItem })[];
+  items: (OrderItem & { menuItem?: MenuItem; daySlot?: MenuDaySlot | null })[];
   chef?: ChefProfile;
+  buyerProfile?: BuyerProfile | null;
 };
 
 export type BuyerProfileWithAllergens = BuyerProfile & {

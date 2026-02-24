@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/select";
 import { ChefHat } from "lucide-react";
 import { Header } from "@/components/header";
+import { NotificationBell } from "@/components/notification-bell";
 import DashboardStats from "@/components/dashboard/DashboardStats";
 import MenuItemsTab from "@/components/dashboard/MenuItemsTab";
 import ScheduleTab from "@/components/dashboard/ScheduleTab";
@@ -22,11 +23,12 @@ import type {
   Allergen,
   MenuItemWithDetails,
   OrderWithItems,
-  PrepListItem,
+  PrepListDayGroup,
 } from "@/components/dashboard/types";
 
 export default function Dashboard() {
   const [selectedChefId, setSelectedChefId] = useState<number | null>(null);
+  const [activeTab, setActiveTab] = useState("items");
 
   const { data: chefs, isLoading: chefsLoading } = useQuery<ChefProfileWithDaySlots[]>({
     queryKey: ["/api/chefs"],
@@ -49,29 +51,80 @@ export default function Dashboard() {
   });
 
   const pendingOrders = useMemo(
-    () => orders?.filter((o) => o.status === "pending" || o.status === "confirmed") || [],
+    () => orders?.filter((o) => ["pending", "confirmed", "paid", "ready"].includes(o.status)) || [],
     [orders]
   );
 
-  const prepList = useMemo(() => {
-    return pendingOrders.reduce((acc, order) => {
-      order.items?.forEach((item) => {
-        const existing = acc.find((p) => p.menuItemId === item.menuItemId);
-        if (existing) {
-          existing.totalQuantity += item.quantity;
-          existing.orderCount += 1;
+  const prepListByDay = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Group: daySlotDate -> menuItemId -> aggregated prep item
+    const dayMap = new Map<string, Map<number, { menuItemId: number; itemTitle: string; totalQuantity: number; orderCount: number; orders: { orderId: number; buyerName: string; quantity: number }[] }>>();
+    // Also track daySlotId per date for the group
+    const dateToSlotId = new Map<string, number>();
+
+    for (const order of pendingOrders) {
+      for (const item of order.items || []) {
+        let dateKey: string;
+
+        if (item.daySlot) {
+          const slotDate = new Date(item.daySlot.date);
+          slotDate.setHours(0, 0, 0, 0);
+          // Skip past dates
+          if (slotDate < today) continue;
+
+          dateKey = slotDate.toISOString();
+          if (!dateToSlotId.has(dateKey)) {
+            dateToSlotId.set(dateKey, item.daySlotId!);
+          }
         } else {
-          acc.push({
+          // Group legacy/unscheduled orders together
+          dateKey = "unscheduled";
+        }
+
+        if (!dayMap.has(dateKey)) {
+          dayMap.set(dateKey, new Map());
+        }
+        const itemMap = dayMap.get(dateKey)!;
+
+        if (!itemMap.has(item.menuItemId)) {
+          itemMap.set(item.menuItemId, {
             menuItemId: item.menuItemId,
             itemTitle: item.itemTitle,
-            totalQuantity: item.quantity,
-            orderCount: 1,
+            totalQuantity: 0,
+            orderCount: 0,
+            orders: [],
           });
         }
-      });
-      return acc;
-    }, [] as PrepListItem[]);
+        const prepItem = itemMap.get(item.menuItemId)!;
+        prepItem.totalQuantity += item.quantity;
+        prepItem.orderCount += 1;
+        prepItem.orders.push({
+          orderId: order.id,
+          buyerName: order.buyerName,
+          quantity: item.quantity,
+        });
+      }
+    }
+
+    // Convert to sorted array — "unscheduled" sorts last
+    const groups: PrepListDayGroup[] = Array.from(dayMap.entries())
+      .sort(([a], [b]) => {
+        if (a === "unscheduled") return 1;
+        if (b === "unscheduled") return -1;
+        return a.localeCompare(b);
+      })
+      .map(([dateKey, itemMap]) => ({
+        daySlotId: dateToSlotId.get(dateKey) ?? null,
+        daySlotDate: dateKey === "unscheduled" ? null : dateKey,
+        items: Array.from(itemMap.values()),
+      }));
+
+    return groups;
   }, [pendingOrders]);
+
+  const prepItemCount = prepListByDay.reduce((sum, g) => sum + g.items.length, 0);
 
   const handleChefChange = useCallback((value: string) => {
     setSelectedChefId(parseInt(value));
@@ -111,33 +164,36 @@ export default function Dashboard() {
             </p>
           </div>
 
-          {chefs && chefs.length > 1 && (
-            <Select
-              value={selectedChef?.id.toString()}
-              onValueChange={handleChefChange}
-            >
-              <SelectTrigger className="w-[200px]" data-testid="select-chef">
-                <SelectValue placeholder="Select chef" />
-              </SelectTrigger>
-              <SelectContent>
-                {chefs.map((chef) => (
-                  <SelectItem key={chef.id} value={chef.id.toString()}>
-                    {chef.firstName} {chef.lastName}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
+          <div className="flex items-center gap-3">
+            <NotificationBell recipientType="chef" recipientId={selectedChef?.id} />
+            {chefs && chefs.length > 1 && (
+              <Select
+                value={selectedChef?.id.toString()}
+                onValueChange={handleChefChange}
+              >
+                <SelectTrigger className="w-[200px]" data-testid="select-chef">
+                  <SelectValue placeholder="Select chef" />
+                </SelectTrigger>
+                <SelectContent>
+                  {chefs.map((chef) => (
+                    <SelectItem key={chef.id} value={chef.id.toString()}>
+                      {chef.firstName} {chef.lastName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
         </div>
 
         <DashboardStats
           menuItemCount={chefMenuItems?.length || 0}
           scheduledDayCount={selectedChef?.daySlots?.length || 0}
           pendingOrderCount={pendingOrders.length}
-          prepItemCount={prepList.length}
+          prepItemCount={prepItemCount}
         />
 
-        <Tabs defaultValue="items" className="space-y-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList>
             <TabsTrigger value="items" data-testid="tab-items">My Food Items</TabsTrigger>
             <TabsTrigger value="menus" data-testid="tab-schedule">My Schedule</TabsTrigger>
@@ -164,8 +220,9 @@ export default function Dashboard() {
 
           <TabsContent value="prep" className="space-y-6">
             <PrepListTab
-              prepList={prepList}
+              prepListByDay={prepListByDay}
               pendingOrderCount={pendingOrders.length}
+              onViewOrder={() => setActiveTab("orders")}
             />
           </TabsContent>
 
