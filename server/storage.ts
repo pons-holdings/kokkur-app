@@ -2,7 +2,7 @@ import {
   chefProfiles, menus, menuDaySlots, menuItems, menuItemAssignments, ingredients, allergens,
   itemIngredients, itemAllergens, orders, orderItems, userFavorites,
   servingOptions, itemPhotos, ingredientAllergens, assignmentServingOptions,
-  buyerProfiles, buyerAllergens, notifications,
+  buyerProfiles, buyerAllergens, notifications, scheduleExceptions,
   type ChefProfile, type InsertChefProfile,
   type Menu, type InsertMenu,
   type MenuDaySlot, type InsertMenuDaySlot,
@@ -21,9 +21,10 @@ import {
   type AssignedServingOptionWithDetails,
   type BuyerProfile, type InsertBuyerProfile, type BuyerProfileWithAllergens,
   type Notification, type InsertNotification,
+  type ScheduleException,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, ilike, sql, inArray, desc } from "drizzle-orm";
+import { eq, and, ilike, sql, inArray, desc, ne, lt, gte, lte } from "drizzle-orm";
 
 export interface IStorage {
   // Chefs
@@ -119,9 +120,22 @@ export interface IStorage {
   updateBuyerProfile(id: number, profile: Partial<InsertBuyerProfile>): Promise<BuyerProfile | undefined>;
   setBuyerAllergens(buyerProfileId: number, allergenIds: number[]): Promise<void>;
 
+  // Schedule slot generation
+  ensureScheduledSlots(chefId: number, windowDays?: number, force?: boolean): Promise<void>;
+  cleanupExpiredAutoSlots(chefId: number): Promise<void>;
+
+  // Schedule exceptions
+  addScheduleException(menuItemId: number, exceptionDate: Date): Promise<ScheduleException>;
+  removeScheduleException(menuItemId: number, exceptionDate: Date): Promise<void>;
+  getScheduleExceptions(menuItemId: number): Promise<ScheduleException[]>;
+
   // Seeding
   seedData(): Promise<void>;
 }
+
+// In-memory cache for ensureScheduledSlots throttling (per chef, last generation time)
+const slotGenerationCache = new Map<number, number>();
+const SLOT_GENERATION_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
 
 export class DatabaseStorage implements IStorage {
   // Batch helper: fetch all details for a set of menu item IDs in 4 queries instead of 4N
@@ -130,6 +144,7 @@ export class DatabaseStorage implements IStorage {
     allergensByItemId: Map<number, typeof allergens.$inferSelect[]>;
     servingOptionsByItemId: Map<number, typeof servingOptions.$inferSelect[]>;
     photosByItemId: Map<number, typeof itemPhotos.$inferSelect[]>;
+    exceptionsByItemId: Map<number, typeof scheduleExceptions.$inferSelect[]>;
   }> {
     if (itemIds.length === 0) {
       return {
@@ -137,10 +152,11 @@ export class DatabaseStorage implements IStorage {
         allergensByItemId: new Map(),
         servingOptionsByItemId: new Map(),
         photosByItemId: new Map(),
+        exceptionsByItemId: new Map(),
       };
     }
 
-    const [allIngredients, allAllergens, allServingOptions, allPhotos] = await Promise.all([
+    const [allIngredients, allAllergens, allServingOptions, allPhotos, allExceptions] = await Promise.all([
       db.select({ menuItemId: itemIngredients.menuItemId, ingredient: ingredients })
         .from(itemIngredients)
         .innerJoin(ingredients, eq(itemIngredients.ingredientId, ingredients.id))
@@ -151,12 +167,14 @@ export class DatabaseStorage implements IStorage {
         .where(inArray(itemAllergens.menuItemId, itemIds)),
       db.select().from(servingOptions).where(inArray(servingOptions.menuItemId, itemIds)),
       db.select().from(itemPhotos).where(inArray(itemPhotos.menuItemId, itemIds)),
+      db.select().from(scheduleExceptions).where(inArray(scheduleExceptions.menuItemId, itemIds)),
     ]);
 
     const ingredientsByItemId = new Map<number, typeof ingredients.$inferSelect[]>();
     const allergensByItemId = new Map<number, typeof allergens.$inferSelect[]>();
     const servingOptionsByItemId = new Map<number, typeof servingOptions.$inferSelect[]>();
     const photosByItemId = new Map<number, typeof itemPhotos.$inferSelect[]>();
+    const exceptionsByItemId = new Map<number, typeof scheduleExceptions.$inferSelect[]>();
 
     for (const r of allIngredients) {
       const list = ingredientsByItemId.get(r.menuItemId) || [];
@@ -178,8 +196,13 @@ export class DatabaseStorage implements IStorage {
       list.push(photo);
       photosByItemId.set(photo.menuItemId, list);
     }
+    for (const exc of allExceptions) {
+      const list = exceptionsByItemId.get(exc.menuItemId) || [];
+      list.push(exc);
+      exceptionsByItemId.set(exc.menuItemId, list);
+    }
 
-    return { ingredientsByItemId, allergensByItemId, servingOptionsByItemId, photosByItemId };
+    return { ingredientsByItemId, allergensByItemId, servingOptionsByItemId, photosByItemId, exceptionsByItemId };
   }
 
   private buildMenuItemWithDetails(
@@ -195,12 +218,22 @@ export class DatabaseStorage implements IStorage {
       servingOptions: details.servingOptionsByItemId.get(item.id) || [],
       photos,
       coverPhoto: coverPhotoObj?.imageUrl,
+      scheduleExceptions: details.exceptionsByItemId.get(item.id) || [],
     };
   }
 
   async getChefs(): Promise<ChefProfileWithDaySlots[]> {
     const chefsData = await db.select().from(chefProfiles);
     if (chefsData.length === 0) return [];
+
+    // Ensure scheduled slots are materialized for all chefs (throttled per-chef)
+    for (const chef of chefsData) {
+      try {
+        await this.ensureScheduledSlots(chef.id);
+      } catch (error) {
+        console.error(`Failed to generate scheduled slots for chef ${chef.id}:`, error);
+      }
+    }
 
     const chefIds = chefsData.map(c => c.id);
 
@@ -274,6 +307,13 @@ export class DatabaseStorage implements IStorage {
   async getChefBySlug(slug: string): Promise<ChefProfileWithDaySlots | undefined> {
     const [chef] = await db.select().from(chefProfiles).where(eq(chefProfiles.slug, slug));
     if (!chef) return undefined;
+
+    // Ensure scheduled slots are materialized (throttled)
+    try {
+      await this.ensureScheduledSlots(chef.id);
+    } catch (error) {
+      console.error(`Failed to generate scheduled slots for chef ${chef.id}:`, error);
+    }
 
     // Use the optimized batch approach for a single chef
     const slots = await db.select().from(menuDaySlots).where(eq(menuDaySlots.chefId, chef.id));
@@ -962,6 +1002,287 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
+  // Auto-generate day slots + assignments for items with schedule rules
+  // Batch approach: 5 upfront queries, then a single transaction for all inserts
+  async ensureScheduledSlots(chefId: number, windowDays: number = 30, force: boolean = false): Promise<void> {
+    // Throttle: skip if last generated < 1 hour ago (unless forced)
+    if (!force) {
+      const lastGen = slotGenerationCache.get(chefId);
+      if (lastGen && Date.now() - lastGen < SLOT_GENERATION_COOLDOWN_MS) {
+        return;
+      }
+    }
+
+    // 1. Batch fetch all data upfront (3 queries)
+    const [scheduledItems, allExceptions, allItemServingOptions] = await Promise.all([
+      db.select().from(menuItems).where(
+        and(
+          eq(menuItems.chefId, chefId),
+          ne(menuItems.scheduleType, "manual"),
+          eq(menuItems.isScheduleActive, 1),
+        )
+      ),
+      db.select().from(scheduleExceptions).where(
+        inArray(
+          scheduleExceptions.menuItemId,
+          db.select({ id: menuItems.id }).from(menuItems).where(
+            and(eq(menuItems.chefId, chefId), ne(menuItems.scheduleType, "manual"), eq(menuItems.isScheduleActive, 1))
+          )
+        )
+      ),
+      db.select().from(servingOptions).where(
+        inArray(
+          servingOptions.menuItemId,
+          db.select({ id: menuItems.id }).from(menuItems).where(
+            and(eq(menuItems.chefId, chefId), ne(menuItems.scheduleType, "manual"), eq(menuItems.isScheduleActive, 1))
+          )
+        )
+      ),
+    ]);
+
+    if (scheduledItems.length === 0) {
+      slotGenerationCache.set(chefId, Date.now());
+      return;
+    }
+
+    // Build lookup maps
+    const exceptionsByItemId = new Map<number, Set<string>>();
+    for (const exc of allExceptions) {
+      const d = new Date(exc.exceptionDate);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      if (!exceptionsByItemId.has(exc.menuItemId)) exceptionsByItemId.set(exc.menuItemId, new Set());
+      exceptionsByItemId.get(exc.menuItemId)!.add(key);
+    }
+
+    const servingOptsByItemId = new Map<number, typeof servingOptions.$inferSelect[]>();
+    for (const opt of allItemServingOptions) {
+      if (!servingOptsByItemId.has(opt.menuItemId)) servingOptsByItemId.set(opt.menuItemId, []);
+      servingOptsByItemId.get(opt.menuItemId)!.push(opt);
+    }
+
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const windowEnd = new Date(todayStart.getTime() + windowDays * 24 * 60 * 60 * 1000);
+
+    // 2. Compute all (dateKey, item) pairs using pure date math
+    const dateItemPairs: { dateKey: string; date: Date; item: typeof scheduledItems[0] }[] = [];
+
+    for (const item of scheduledItems) {
+      const itemExceptions = exceptionsByItemId.get(item.id) || new Set<string>();
+      const startBound = item.scheduleStartDate ? new Date(item.scheduleStartDate) : todayStart;
+      const endBound = item.scheduleEndDate ? new Date(item.scheduleEndDate) : null;
+
+      if (item.scheduleType === "one_off") {
+        if (item.oneOffDate) {
+          const d = new Date(item.oneOffDate);
+          d.setHours(12, 0, 0, 0);
+          const dk = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          if (d >= todayStart && d <= windowEnd && (!endBound || d <= endBound) && !itemExceptions.has(dk)) {
+            dateItemPairs.push({ dateKey: dk, date: d, item });
+          }
+        }
+        continue;
+      }
+
+      for (let dayOffset = 0; dayOffset <= windowDays; dayOffset++) {
+        const d = new Date(todayStart.getTime() + dayOffset * 24 * 60 * 60 * 1000);
+        d.setHours(12, 0, 0, 0);
+        if (d < startBound) continue;
+        if (endBound && d > endBound) continue;
+
+        const dk = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        if (itemExceptions.has(dk)) continue;
+
+        const dayOfWeek = d.getDay();
+        let matches = false;
+        switch (item.scheduleType) {
+          case "daily": matches = true; break;
+          case "weekdays": matches = dayOfWeek >= 1 && dayOfWeek <= 5; break;
+          case "weekends": matches = dayOfWeek === 0 || dayOfWeek === 6; break;
+          case "custom_days": matches = (item.scheduleDays || []).includes(dayOfWeek); break;
+        }
+        if (matches) {
+          dateItemPairs.push({ dateKey: dk, date: d, item });
+        }
+      }
+    }
+
+    if (dateItemPairs.length === 0) {
+      await this.cleanupExpiredAutoSlots(chefId);
+      slotGenerationCache.set(chefId, Date.now());
+      return;
+    }
+
+    // 3. Fetch existing slots and assignments for this chef in the window (2 queries)
+    const [existingSlots, existingAssignments] = await Promise.all([
+      db.select().from(menuDaySlots).where(
+        and(
+          eq(menuDaySlots.chefId, chefId),
+          gte(menuDaySlots.date, todayStart),
+          lte(menuDaySlots.date, windowEnd),
+        )
+      ),
+      db.select({ assignment: menuItemAssignments, slotId: menuItemAssignments.daySlotId })
+        .from(menuItemAssignments)
+        .innerJoin(menuDaySlots, eq(menuItemAssignments.daySlotId, menuDaySlots.id))
+        .where(
+          and(
+            eq(menuDaySlots.chefId, chefId),
+            gte(menuDaySlots.date, todayStart),
+            lte(menuDaySlots.date, windowEnd),
+          )
+        ),
+    ]);
+
+    // Build slot lookup by dateKey
+    const slotByDateKey = new Map<string, typeof existingSlots[0]>();
+    for (const slot of existingSlots) {
+      const d = new Date(slot.date);
+      const dk = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      slotByDateKey.set(dk, slot);
+    }
+
+    // Build assignment lookup by "slotId-itemId"
+    const assignmentKeys = new Set<string>();
+    for (const row of existingAssignments) {
+      assignmentKeys.add(`${row.assignment.daySlotId}-${row.assignment.menuItemId}`);
+    }
+
+    // 4. In a single transaction, create missing slots and assignments
+    await db.transaction(async (tx) => {
+      // Group pairs by dateKey
+      const pairsByDate = new Map<string, typeof dateItemPairs>();
+      for (const pair of dateItemPairs) {
+        if (!pairsByDate.has(pair.dateKey)) pairsByDate.set(pair.dateKey, []);
+        pairsByDate.get(pair.dateKey)!.push(pair);
+      }
+
+      for (const [dateKey, pairs] of pairsByDate) {
+        let slot = slotByDateKey.get(dateKey);
+
+        // Create slot if missing
+        if (!slot) {
+          const cutoffMs = Math.min(...pairs.map(p => (p.item.cutoffLeadHours || 24))) * 60 * 60 * 1000;
+          const cutoffDate = new Date(pairs[0].date.getTime() - cutoffMs);
+          const [newSlot] = await tx.insert(menuDaySlots).values({
+            chefId,
+            date: pairs[0].date,
+            orderCutoffDate: cutoffDate,
+            autoGenerated: 1,
+          }).returning();
+          slot = newSlot;
+          slotByDateKey.set(dateKey, slot);
+        }
+
+        // Create missing assignments + serving options
+        for (const pair of pairs) {
+          const aKey = `${slot.id}-${pair.item.id}`;
+          if (assignmentKeys.has(aKey)) continue;
+
+          const [assignment] = await tx.insert(menuItemAssignments).values({
+            daySlotId: slot.id,
+            menuItemId: pair.item.id,
+          }).returning();
+
+          // Batch-insert serving options for this assignment
+          const itemOpts = servingOptsByItemId.get(pair.item.id) || [];
+          if (itemOpts.length > 0) {
+            await tx.insert(assignmentServingOptions).values(
+              itemOpts.map(opt => ({
+                assignmentId: assignment.id,
+                servingOptionId: opt.id,
+                stockLimited: 0,
+                stockQuantity: null,
+              }))
+            );
+          }
+
+          assignmentKeys.add(aKey);
+        }
+      }
+    });
+
+    // 5. Cleanup expired auto-slots
+    await this.cleanupExpiredAutoSlots(chefId);
+
+    slotGenerationCache.set(chefId, Date.now());
+  }
+
+  // Delete auto-generated day slots that are in the past AND have no associated order items
+  async cleanupExpiredAutoSlots(chefId: number): Promise<void> {
+    const now = new Date();
+
+    // Find auto-generated slots in the past for this chef
+    const expiredSlots = await db.select().from(menuDaySlots).where(
+      and(
+        eq(menuDaySlots.chefId, chefId),
+        eq(menuDaySlots.autoGenerated, 1),
+        lt(menuDaySlots.date, now),
+      )
+    );
+
+    for (const slot of expiredSlots) {
+      // Check if there are any order items referencing this slot
+      const relatedOrders = await db.select({ id: orderItems.id }).from(orderItems)
+        .where(eq(orderItems.daySlotId, slot.id))
+        .limit(1);
+
+      if (relatedOrders.length === 0) {
+        // Safe to delete (cascades to assignments and their serving options)
+        await db.delete(menuDaySlots).where(eq(menuDaySlots.id, slot.id));
+      }
+    }
+  }
+
+  async addScheduleException(menuItemId: number, exceptionDate: Date): Promise<ScheduleException> {
+    // Normalize to noon to avoid timezone issues
+    const normalized = new Date(exceptionDate);
+    normalized.setHours(12, 0, 0, 0);
+
+    // Check for duplicate
+    const dateStr = `${normalized.getFullYear()}-${String(normalized.getMonth() + 1).padStart(2, '0')}-${String(normalized.getDate()).padStart(2, '0')}`;
+    const dayStart = new Date(dateStr + "T00:00:00");
+    const dayEnd = new Date(dateStr + "T23:59:59");
+
+    const existing = await db.select().from(scheduleExceptions).where(
+      and(
+        eq(scheduleExceptions.menuItemId, menuItemId),
+        gte(scheduleExceptions.exceptionDate, dayStart),
+        lte(scheduleExceptions.exceptionDate, dayEnd),
+      )
+    );
+
+    if (existing.length > 0) {
+      return existing[0];
+    }
+
+    const [exception] = await db.insert(scheduleExceptions).values({
+      menuItemId,
+      exceptionDate: normalized,
+    }).returning();
+    return exception;
+  }
+
+  async removeScheduleException(menuItemId: number, exceptionDate: Date): Promise<void> {
+    const dateStr = `${exceptionDate.getFullYear()}-${String(exceptionDate.getMonth() + 1).padStart(2, '0')}-${String(exceptionDate.getDate()).padStart(2, '0')}`;
+    const dayStart = new Date(dateStr + "T00:00:00");
+    const dayEnd = new Date(dateStr + "T23:59:59");
+
+    await db.delete(scheduleExceptions).where(
+      and(
+        eq(scheduleExceptions.menuItemId, menuItemId),
+        gte(scheduleExceptions.exceptionDate, dayStart),
+        lte(scheduleExceptions.exceptionDate, dayEnd),
+      )
+    );
+  }
+
+  async getScheduleExceptions(menuItemId: number): Promise<ScheduleException[]> {
+    return db.select().from(scheduleExceptions).where(
+      eq(scheduleExceptions.menuItemId, menuItemId)
+    );
+  }
+
   async seedData(): Promise<void> {
    try {
     // Always re-seed: clear all tables and re-insert with fresh data
@@ -972,6 +1293,7 @@ export class DatabaseStorage implements IStorage {
     await db.delete(orderItems);
     await db.delete(orders);
     await db.delete(menuItemAssignments);
+    await db.delete(scheduleExceptions);
     await db.delete(itemAllergens);
     await db.delete(itemIngredients);
     await db.delete(itemPhotos);

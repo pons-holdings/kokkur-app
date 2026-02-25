@@ -172,6 +172,7 @@ export default function Checkout() {
           items: items.map((item) => ({
             menuItemId: item.menuItem.id,
             daySlotId: item.daySlotId || null,
+            fulfillmentDate: item.fulfillmentDate || item.daySlotDate || null,
             quantity: item.quantity,
             priceAtOrder: item.servingOption.price,
             itemTitle: item.menuItem.title,

@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { queryClient } from "@/lib/queryClient";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -32,6 +33,7 @@ export default function Dashboard() {
 
   const { data: chefs, isLoading: chefsLoading } = useQuery<ChefProfileWithDaySlots[]>({
     queryKey: ["/api/chefs"],
+    staleTime: 30 * 1000,
   });
 
   const { data: allergens } = useQuery<Allergen[]>({
@@ -43,6 +45,7 @@ export default function Dashboard() {
   const { data: chefMenuItems, isLoading: itemsLoading } = useQuery<MenuItemWithDetails[]>({
     queryKey: ["/api/menu-items/chef", selectedChef?.id],
     enabled: !!selectedChef?.id,
+    staleTime: 30 * 1000,
   });
 
   const { data: orders, isLoading: ordersLoading } = useQuery<OrderWithItems[]>({
@@ -193,7 +196,13 @@ export default function Dashboard() {
           prepItemCount={prepItemCount}
         />
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+        <Tabs value={activeTab} onValueChange={(tab) => {
+          setActiveTab(tab);
+          if (tab === "menus" || tab === "items") {
+            queryClient.invalidateQueries({ queryKey: ["/api/chefs"] });
+            queryClient.invalidateQueries({ queryKey: ["/api/menu-items/chef", selectedChef?.id] });
+          }
+        }} className="space-y-6">
           <TabsList>
             <TabsTrigger value="items" data-testid="tab-items">My Food Items</TabsTrigger>
             <TabsTrigger value="menus" data-testid="tab-schedule">My Schedule</TabsTrigger>

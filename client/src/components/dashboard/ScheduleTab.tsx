@@ -21,6 +21,14 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
+import {
   Plus,
   Loader2,
   X,
@@ -29,9 +37,12 @@ import {
   ChevronDown,
   Search,
   Archive,
+  Zap,
+  CalendarClock,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { computeScheduleForDateRange } from "@/lib/schedule-utils";
 import type {
   ChefProfileWithDaySlots,
   MenuItemWithDetails,
@@ -59,6 +70,13 @@ const ScheduleTab = React.memo(function ScheduleTab({
   const [servingSizeDialogOpen, setServingSizeDialogOpen] = useState(false);
   const [pendingItemToAdd, setPendingItemToAdd] = useState<{ item: MenuItemWithDetails; daySlotId: number; dateKey: string } | null>(null);
   const [selectedServingSizes, setSelectedServingSizes] = useState<Map<number, ServingSizeSelection>>(new Map());
+
+  // Schedule dialog state (shown after adding item)
+  const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
+  const [pendingScheduleItem, setPendingScheduleItem] = useState<MenuItemWithDetails | null>(null);
+  const [scheduleType, setScheduleType] = useState<string>("manual");
+  const [scheduleDays, setScheduleDays] = useState<number[]>([]);
+  const [cutoffLeadHours, setCutoffLeadHours] = useState(24);
 
   const { toast } = useToast();
 
@@ -92,6 +110,17 @@ const ScheduleTab = React.memo(function ScheduleTab({
       setDebouncedSearchQuery("");
     }
   }, [itemSearchQuery]);
+
+  // Open schedule dialog after serving size dialog finishes closing
+  // (delayed to avoid Radix Dialog close-animation suppressing the new dialog)
+  useEffect(() => {
+    if (pendingScheduleItem && !servingSizeDialogOpen) {
+      const timer = setTimeout(() => {
+        setScheduleDialogOpen(true);
+      }, 200);
+      return () => clearTimeout(timer);
+    }
+  }, [pendingScheduleItem, servingSizeDialogOpen]);
 
   // Mutations
   const createDaySlotMutation = useMutation({
@@ -137,10 +166,6 @@ const ScheduleTab = React.memo(function ScheduleTab({
     mutationFn: async ({ daySlotId, itemId }: { daySlotId: number; itemId: number }) => {
       return apiRequest("POST", `/api/day-slots/${daySlotId}/items/${itemId}`);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/chefs"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/menus/chef", selectedChef?.id] });
-    },
     onError: (error: Error) => {
       toast({ title: "Error adding item", description: error.message, variant: "destructive" });
     },
@@ -149,9 +174,6 @@ const ScheduleTab = React.memo(function ScheduleTab({
   const addAssignmentServingOptionMutation = useMutation({
     mutationFn: async ({ assignmentId, servingOptionId, stockLimited, stockQuantity }: { assignmentId: number; servingOptionId: number; stockLimited?: boolean; stockQuantity?: number }) => {
       return apiRequest("POST", `/api/assignments/${assignmentId}/serving-options`, { servingOptionId, stockLimited, stockQuantity });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/chefs"] });
     },
     onError: (error: Error) => {
       toast({ title: "Error adding serving option", description: error.message, variant: "destructive" });
@@ -171,17 +193,50 @@ const ScheduleTab = React.memo(function ScheduleTab({
     },
   });
 
+  const updateAssignmentServingOptionMutation = useMutation({
+    mutationFn: async ({ id, stockLimited, stockQuantity }: { id: number; stockLimited: boolean; stockQuantity?: number }) => {
+      return apiRequest("PATCH", `/api/assignment-serving-options/${id}`, { stockLimited, stockQuantity });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/chefs"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error updating stock", description: error.message, variant: "destructive" });
+    },
+  });
+
   const removeItemFromDaySlotMutation = useMutation({
     mutationFn: async ({ daySlotId, itemId }: { daySlotId: number; itemId: number }) => {
       return apiRequest("DELETE", `/api/day-slots/${daySlotId}/items/${itemId}`);
     },
-    onSuccess: () => {
-      toast({ title: "Item removed", description: "Item has been removed from the day." });
+    onSuccess: (_, variables) => {
+      // Check if the removed item has a recurring schedule
+      const item = chefMenuItems?.find(i => i.id === variables.itemId);
+      if (item && item.scheduleType !== "manual") {
+        toast({ title: "Removed from this day", description: "The recurring schedule is unchanged." });
+      } else {
+        toast({ title: "Item removed", description: "Item has been removed from the day." });
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/chefs"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/menus/chef", selectedChef?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/menu-items/chef", selectedChef?.id] });
     },
     onError: (error: Error) => {
       toast({ title: "Error removing item", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const updateItemScheduleMutation = useMutation({
+    mutationFn: async ({ itemId, data }: { itemId: number; data: Record<string, unknown> }) => {
+      return apiRequest("PATCH", `/api/menu-items/${itemId}`, data);
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/chefs"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/menu-items/chef", selectedChef?.id] }),
+      ]);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error updating schedule", description: error.message, variant: "destructive" });
     },
   });
 
@@ -237,11 +292,62 @@ const ScheduleTab = React.memo(function ScheduleTab({
       });
     }
 
+    // Consolidated invalidation after all mutations complete
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["/api/chefs"] }),
+      queryClient.invalidateQueries({ queryKey: ["/api/menu-items/chef", selectedChef?.id] }),
+    ]);
+
     toast({ title: "Item added", description: `${item.title} has been added to this day.` });
     setServingSizeDialogOpen(false);
-    setPendingItemToAdd(null);
     setSelectedServingSizes(new Map());
-  }, [pendingItemToAdd, selectedServingSizes, assignItemToDaySlotMutation, addAssignmentServingOptionMutation, toast]);
+
+    // Always offer to set/change schedule when adding from Schedule tab
+    setPendingScheduleItem(item);
+    setScheduleType(item.scheduleType || "manual");
+    setScheduleDays(item.scheduleDays || []);
+    setCutoffLeadHours(item.cutoffLeadHours || 24);
+    // Don't open schedule dialog here — let the useEffect handle it
+    // after the serving size dialog finishes closing
+
+    setPendingItemToAdd(null);
+  }, [pendingItemToAdd, selectedServingSizes, assignItemToDaySlotMutation, addAssignmentServingOptionMutation, toast, selectedChef?.id]);
+
+  const confirmSetSchedule = useCallback(async () => {
+    if (!pendingScheduleItem) return;
+
+    if (scheduleType === "manual" && (pendingScheduleItem.scheduleType === "manual" || !pendingScheduleItem.scheduleType)) {
+      // User chose "Just this day" and item was already manual — no change needed
+      setScheduleDialogOpen(false);
+      setPendingScheduleItem(null);
+      return;
+    }
+
+    const data: Record<string, unknown> = {
+      scheduleType,
+      cutoffLeadHours,
+      isScheduleActive: scheduleType !== "manual" ? 1 : 0,
+    };
+
+    if (scheduleType === "custom_days") {
+      data.scheduleDays = scheduleDays;
+    }
+
+    await updateItemScheduleMutation.mutateAsync({
+      itemId: pendingScheduleItem.id,
+      data,
+    });
+
+    toast({
+      title: scheduleType === "manual" ? "Schedule removed" : "Schedule updated",
+      description: scheduleType === "manual"
+        ? `${pendingScheduleItem.title} will no longer auto-appear on scheduled days.`
+        : `${pendingScheduleItem.title} will now automatically appear on scheduled days.`,
+    });
+
+    setScheduleDialogOpen(false);
+    setPendingScheduleItem(null);
+  }, [pendingScheduleItem, scheduleType, scheduleDays, cutoffLeadHours, updateItemScheduleMutation, toast]);
 
   const handleRemoveItemFromDay = useCallback(async (daySlotId: number, itemId: number) => {
     await removeItemFromDaySlotMutation.mutateAsync({ daySlotId, itemId });
@@ -252,13 +358,14 @@ const ScheduleTab = React.memo(function ScheduleTab({
     if (!debouncedSearchQuery) return [];
     const query = debouncedSearchQuery.toLowerCase();
     return (chefMenuItems || []).filter(item =>
+      item.chefId === selectedChef?.id &&
       !assignedIds.includes(item.id) && (
         item.title.toLowerCase().includes(query) ||
         item.description?.toLowerCase().includes(query) ||
         item.ingredients?.some(i => i.name.toLowerCase().includes(query))
       )
     );
-  }, [debouncedSearchQuery, chefMenuItems]);
+  }, [debouncedSearchQuery, chefMenuItems, selectedChef?.id]);
 
   // Calendar computations
   const calendarData = useMemo(() => {
@@ -287,8 +394,80 @@ const ScheduleTab = React.memo(function ScheduleTab({
 
   const today = useMemo(() => new Date(), []);
 
+  // Client-side computed schedule from item schedule rules
+  const computedSchedule = useMemo(() => {
+    const allExceptions = (chefMenuItems || []).flatMap(item =>
+      (item.scheduleExceptions || []).map(exc => ({
+        menuItemId: item.id,
+        exceptionDate: exc.exceptionDate,
+      }))
+    );
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start.getTime() + 60 * 86400000);
+    return computeScheduleForDateRange(chefMenuItems || [], start, end, allExceptions);
+  }, [chefMenuItems]);
+
+  // Mutation for creating exceptions directly (for items in computed view with no materialized assignment)
+  const addExceptionMutation = useMutation({
+    mutationFn: async ({ menuItemId, exceptionDate }: { menuItemId: number; exceptionDate: string }) => {
+      return apiRequest("POST", `/api/menu-items/${menuItemId}/exceptions`, { date: exceptionDate });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/chefs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/menu-items/chef", selectedChef?.id] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error removing item from day", description: error.message, variant: "destructive" });
+    },
+  });
+
+  // Helper: get merged item count for a date (computed + materialized, deduplicated)
+  const getMergedItemsForDate = useCallback((dateKey: string): { items: MenuItemWithDetails[]; sources: Map<number, "schedule" | "manual"> } => {
+    const computedEntry = computedSchedule.get(dateKey);
+    const slot = getSlotForDate(dateKey);
+    const items: MenuItemWithDetails[] = [];
+    const sources = new Map<number, "schedule" | "manual">();
+
+    // Add computed items first
+    if (computedEntry) {
+      for (const item of computedEntry.items) {
+        items.push(item);
+        sources.set(item.id, "schedule");
+      }
+    }
+
+    // Add materialized items (manual assignments not already in computed)
+    if (slot?.items) {
+      for (const assignedItem of slot.items) {
+        if (!sources.has(assignedItem.id)) {
+          // Find full item details from chefMenuItems
+          const fullItem = chefMenuItems?.find(mi => mi.id === assignedItem.id);
+          if (fullItem) {
+            items.push(fullItem);
+            sources.set(assignedItem.id, "manual");
+          }
+        }
+      }
+    }
+
+    return { items, sources };
+  }, [computedSchedule, getSlotForDate, chefMenuItems]);
+
   const selectedDateKey = selectedCalendarDate;
   const selectedSlot = selectedDateKey ? getSlotForDate(selectedDateKey) : null;
+
+  // Schedule type label helper
+  const getScheduleLabel = useCallback((scheduleType: string | null | undefined): string | null => {
+    switch (scheduleType) {
+      case "daily": return "Every day";
+      case "weekdays": return "Weekdays";
+      case "weekends": return "Weekends";
+      case "custom_days": return "Custom days";
+      case "one_off": return "One-off";
+      default: return null;
+    }
+  }, []);
 
   // Price display helper
   const renderPriceRange = useCallback((item: MenuItemWithDetails) => {
@@ -315,7 +494,19 @@ const ScheduleTab = React.memo(function ScheduleTab({
                 )}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="font-medium truncate">{assignedItem.title}</p>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <p className="font-medium truncate">{assignedItem.title}</p>
+                      {(() => {
+                        const menuItem = chefMenuItems?.find(mi => mi.id === assignedItem.id);
+                        const label = menuItem ? getScheduleLabel(menuItem.scheduleType) : null;
+                        return label ? (
+                          <Badge variant="secondary" className="text-xs flex-shrink-0">
+                            <CalendarClock className="h-3 w-3 mr-1" />
+                            {label}
+                          </Badge>
+                        ) : null;
+                      })()}
+                    </div>
                     <Button
                       variant="ghost"
                       size="icon"
@@ -336,9 +527,40 @@ const ScheduleTab = React.memo(function ScheduleTab({
                             <span className="text-muted-foreground">${aso.servingOption.price.toFixed(2)}</span>
                           </div>
                           <div className="flex items-center gap-2">
-                            <Badge variant={aso.stockLimited === 1 ? "secondary" : "outline"} className="text-xs">
-                              {aso.stockLimited === 1 ? `${aso.stockQuantity || 0} left` : "Unlimited"}
-                            </Badge>
+                            {aso.stockLimited === 1 ? (
+                              <div className="flex items-center gap-1">
+                                <Input
+                                  type="number"
+                                  min="1"
+                                  defaultValue={aso.stockQuantity || 10}
+                                  className="w-16 h-6 text-xs px-1"
+                                  onBlur={(e) => {
+                                    const qty = parseInt(e.target.value) || 1;
+                                    if (qty !== aso.stockQuantity) {
+                                      updateAssignmentServingOptionMutation.mutate({ id: aso.id, stockLimited: true, stockQuantity: qty });
+                                    }
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                                  }}
+                                />
+                                <Badge
+                                  variant="secondary"
+                                  className="text-xs cursor-pointer hover:bg-secondary/80"
+                                  onClick={() => updateAssignmentServingOptionMutation.mutate({ id: aso.id, stockLimited: false })}
+                                >
+                                  Limited
+                                </Badge>
+                              </div>
+                            ) : (
+                              <Badge
+                                variant="outline"
+                                className="text-xs cursor-pointer hover:bg-accent"
+                                onClick={() => updateAssignmentServingOptionMutation.mutate({ id: aso.id, stockLimited: true, stockQuantity: aso.stockQuantity || 10 })}
+                              >
+                                Unlimited
+                              </Badge>
+                            )}
                             <Button
                               variant="ghost"
                               size="icon"
@@ -363,7 +585,7 @@ const ScheduleTab = React.memo(function ScheduleTab({
         </div>
       </div>
     );
-  }, [handleRemoveItemFromDay, removeItemFromDaySlotMutation.isPending, removeAssignmentServingOptionMutation]);
+  }, [handleRemoveItemFromDay, removeItemFromDaySlotMutation.isPending, removeAssignmentServingOptionMutation, updateAssignmentServingOptionMutation, chefMenuItems, getScheduleLabel]);
 
   // Shared search and add items renderer
   const renderSearchAndAdd = useCallback((
@@ -371,7 +593,9 @@ const ScheduleTab = React.memo(function ScheduleTab({
     dateKey: string,
     testIdSuffix?: string
   ) => {
-    const assignedIds = slot?.items?.map((i: MenuItemWithAssignment) => i.id) || [];
+    // Exclude items that are already shown (both materialized and computed)
+    const merged = getMergedItemsForDate(dateKey);
+    const assignedIds = merged.items.map(i => i.id);
     const filteredItems = getFilteredItems(assignedIds);
 
     return (
@@ -401,9 +625,17 @@ const ScheduleTab = React.memo(function ScheduleTab({
                   )}
                   <div className="min-w-0 flex-1">
                     <p className="font-medium truncate">{item.title}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {renderPriceRange(item)}
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm text-muted-foreground">
+                        {renderPriceRange(item)}
+                      </p>
+                      {getScheduleLabel(item.scheduleType) && (
+                        <Badge variant="secondary" className="text-xs">
+                          <CalendarClock className="h-3 w-3 mr-1" />
+                          {getScheduleLabel(item.scheduleType)}
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                   <Button size="icon" variant="ghost" className="flex-shrink-0" {...(testIdSuffix ? { "data-testid": `button-add-item-${testIdSuffix}-${item.id}` } : {})}>
                     <Plus className="h-4 w-4" />
@@ -418,7 +650,7 @@ const ScheduleTab = React.memo(function ScheduleTab({
         )}
       </div>
     );
-  }, [itemSearchQuery, debouncedSearchQuery, getFilteredItems, handleAddItemToDay, handleSearchChange, renderPriceRange]);
+  }, [itemSearchQuery, debouncedSearchQuery, getFilteredItems, handleAddItemToDay, handleSearchChange, renderPriceRange, getScheduleLabel, getMergedItemsForDate]);
 
   return (
     <>
@@ -461,8 +693,8 @@ const ScheduleTab = React.memo(function ScheduleTab({
                   const isCurrentMonth = isSameMonth(day, calendarMonth);
                   const isToday = isSameDay(day, today);
                   const isSelected = selectedDateKey === dateKey;
-                  const slot = getSlotForDate(dateKey);
-                  const itemCount = slot?.items?.length || 0;
+                  const merged = getMergedItemsForDate(dateKey);
+                  const itemCount = merged.items.length;
 
                   return (
                     <div
@@ -483,7 +715,7 @@ const ScheduleTab = React.memo(function ScheduleTab({
                       </span>
                       {itemCount > 0 && (
                         <div className="mt-0.5 space-y-0.5 overflow-hidden">
-                          {slot!.items.slice(0, 3).map((item: MenuItemWithAssignment) => (
+                          {merged.items.slice(0, 3).map((item) => (
                             <div key={item.id} className="text-[10px] leading-tight truncate rounded bg-primary/10 text-primary px-1 py-px">
                               {item.title}
                             </div>
@@ -493,11 +725,6 @@ const ScheduleTab = React.memo(function ScheduleTab({
                               +{itemCount - 3} more
                             </div>
                           )}
-                        </div>
-                      )}
-                      {slot && itemCount === 0 && (
-                        <div className="mt-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40 inline-block" />
                         </div>
                       )}
                     </div>
@@ -511,7 +738,10 @@ const ScheduleTab = React.memo(function ScheduleTab({
         {/* Slide-in detail panel for selected date */}
         <Sheet open={!!selectedDateKey} onOpenChange={(open) => { if (!open) { setSelectedCalendarDate(null); setItemSearchQuery(""); setDebouncedSearchQuery(""); } }}>
           <SheetContent side="right" className="sm:max-w-md w-full overflow-y-auto">
-            {selectedDateKey && (
+            {selectedDateKey && (() => {
+              const mergedForPanel = getMergedItemsForDate(selectedDateKey);
+              const totalItems = mergedForPanel.items.length;
+              return (
               <>
                 <SheetHeader>
                   <SheetTitle>
@@ -520,9 +750,12 @@ const ScheduleTab = React.memo(function ScheduleTab({
                       <Badge variant="outline" className="ml-2">Today</Badge>
                     )}
                   </SheetTitle>
-                  {selectedSlot ? (
+                  {totalItems > 0 || selectedSlot ? (
                     <SheetDescription>
-                      {selectedSlot.items?.length || 0} item{(selectedSlot.items?.length || 0) !== 1 ? "s" : ""} • Orders by {format(new Date(selectedSlot.orderCutoffDate), "MMM d")}
+                      {selectedSlot && (selectedSlot as any).autoGenerated === 1 && (
+                        <Badge variant="secondary" className="mr-2 text-xs"><Zap className="h-3 w-3 mr-1" />Auto</Badge>
+                      )}
+                      {totalItems} item{totalItems !== 1 ? "s" : ""}{selectedSlot ? ` • Orders by ${format(new Date(selectedSlot.orderCutoffDate), "MMM d")}` : ""}
                     </SheetDescription>
                   ) : (
                     <SheetDescription>No offerings scheduled — add items below</SheetDescription>
@@ -564,14 +797,134 @@ const ScheduleTab = React.memo(function ScheduleTab({
                     </div>
                   )}
 
-                  {/* Assigned items display */}
-                  {selectedSlot && renderAssignedItems(selectedSlot)}
+                  {/* Merged items display (computed + materialized) */}
+                  {totalItems > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">Scheduled items:</p>
+                      <div className="space-y-2">
+                        {mergedForPanel.items.map((item) => {
+                          const source = mergedForPanel.sources.get(item.id);
+                          // Check if this item has a materialized assignment in the slot
+                          const assignedItem = selectedSlot?.items?.find((ai: MenuItemWithAssignment) => ai.id === item.id);
+                          return (
+                            <div key={item.id} className="p-3 rounded-lg border bg-primary/5 border-primary/20">
+                              <div className="flex items-start gap-3">
+                                {item.coverPhoto && (
+                                  <img src={item.coverPhoto} alt={item.title} className="w-12 h-12 rounded object-cover flex-shrink-0" />
+                                )}
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <p className="font-medium truncate">{item.title}</p>
+                                      {source === "schedule" && (
+                                        <Badge variant="secondary" className="text-xs flex-shrink-0">
+                                          <CalendarClock className="h-3 w-3 mr-1" />
+                                          {getScheduleLabel(item.scheduleType) || "Scheduled"}
+                                        </Badge>
+                                      )}
+                                      {source === "manual" && (
+                                        <Badge variant="outline" className="text-xs flex-shrink-0">Manual</Badge>
+                                      )}
+                                    </div>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-6 w-6 text-destructive flex-shrink-0"
+                                      onClick={async () => {
+                                        if (assignedItem && selectedSlot) {
+                                          // Has materialized assignment — use existing remove endpoint (creates exception for scheduled items)
+                                          await handleRemoveItemFromDay(selectedSlot.id, item.id);
+                                        } else {
+                                          // Only in computed view — create exception directly
+                                          await addExceptionMutation.mutateAsync({
+                                            menuItemId: item.id,
+                                            exceptionDate: selectedDateKey!,
+                                          });
+                                          toast({ title: "Removed from this day", description: "The recurring schedule is unchanged." });
+                                        }
+                                      }}
+                                      disabled={removeItemFromDaySlotMutation.isPending || addExceptionMutation.isPending}
+                                    >
+                                      <X className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                  {/* Show assigned serving options if materialized */}
+                                  {assignedItem?.assignedServingOptions && assignedItem.assignedServingOptions.length > 0 && (
+                                    <div className="mt-2 space-y-1">
+                                      {assignedItem.assignedServingOptions.map((aso) => (
+                                        <div key={aso.id} className="flex items-center justify-between text-sm pl-2 border-l-2 border-muted">
+                                          <div className="flex items-center gap-2">
+                                            <span>{aso.servingOption.label}</span>
+                                            <span className="text-muted-foreground">${aso.servingOption.price.toFixed(2)}</span>
+                                          </div>
+                                          <div className="flex items-center gap-2">
+                                            {aso.stockLimited === 1 ? (
+                                              <div className="flex items-center gap-1">
+                                                <Input
+                                                  type="number"
+                                                  min="1"
+                                                  defaultValue={aso.stockQuantity || 10}
+                                                  className="w-16 h-6 text-xs px-1"
+                                                  onBlur={(e) => {
+                                                    const qty = parseInt(e.target.value) || 1;
+                                                    if (qty !== aso.stockQuantity) {
+                                                      updateAssignmentServingOptionMutation.mutate({ id: aso.id, stockLimited: true, stockQuantity: qty });
+                                                    }
+                                                  }}
+                                                  onKeyDown={(e) => {
+                                                    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                                                  }}
+                                                />
+                                                <Badge
+                                                  variant="secondary"
+                                                  className="text-xs cursor-pointer hover:bg-secondary/80"
+                                                  onClick={() => updateAssignmentServingOptionMutation.mutate({ id: aso.id, stockLimited: false })}
+                                                >
+                                                  Limited
+                                                </Badge>
+                                              </div>
+                                            ) : (
+                                              <Badge
+                                                variant="outline"
+                                                className="text-xs cursor-pointer hover:bg-accent"
+                                                onClick={() => updateAssignmentServingOptionMutation.mutate({ id: aso.id, stockLimited: true, stockQuantity: aso.stockQuantity || 10 })}
+                                              >
+                                                Unlimited
+                                              </Badge>
+                                            )}
+                                            <Button
+                                              variant="ghost"
+                                              size="icon"
+                                              className="h-5 w-5 text-destructive"
+                                              onClick={() => removeAssignmentServingOptionMutation.mutate(aso.id)}
+                                              disabled={removeAssignmentServingOptionMutation.isPending}
+                                            >
+                                              <X className="h-3 w-3" />
+                                            </Button>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {/* Show price range for computed-only items */}
+                                  {!assignedItem && item.servingOptions && item.servingOptions.length > 0 && (
+                                    <p className="text-sm text-muted-foreground mt-1">{renderPriceRange(item)}</p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Search and add items */}
                   {renderSearchAndAdd(selectedSlot || undefined, selectedDateKey)}
                 </div>
               </>
-            )}
+              );
+            })()}
           </SheetContent>
         </Sheet>
       </div>
@@ -582,7 +935,8 @@ const ScheduleTab = React.memo(function ScheduleTab({
           const dateKey = format(day, "yyyy-MM-dd");
           const existingSlot = getSlotForDate(dateKey);
           const isExpanded = expandedDays.has(dateKey);
-          const itemCount = existingSlot?.items?.length || 0;
+          const mergedMobile = getMergedItemsForDate(dateKey);
+          const itemCount = mergedMobile.items.length;
           const isToday = format(day, "yyyy-MM-dd") === format(today, "yyyy-MM-dd");
 
           return (
@@ -607,9 +961,12 @@ const ScheduleTab = React.memo(function ScheduleTab({
                       {format(day, "MMMM d, yyyy")}
                       {isToday && <Badge variant="outline" className="ml-2">Today</Badge>}
                     </p>
-                    {existingSlot ? (
+                    {itemCount > 0 || existingSlot ? (
                       <p className="text-sm text-muted-foreground">
-                        {itemCount} item{itemCount !== 1 ? "s" : ""} • Orders by {format(new Date(existingSlot.orderCutoffDate), "MMM d")}
+                        {existingSlot && (existingSlot as any).autoGenerated === 1 && (
+                          <Badge variant="secondary" className="mr-1 text-xs"><Zap className="h-3 w-3 mr-0.5" />Auto</Badge>
+                        )}
+                        {itemCount} item{itemCount !== 1 ? "s" : ""}{existingSlot ? ` • Orders by ${format(new Date(existingSlot.orderCutoffDate), "MMM d")}` : ""}
                       </p>
                     ) : (
                       <p className="text-sm text-muted-foreground">No offerings scheduled</p>
@@ -766,6 +1123,110 @@ const ScheduleTab = React.memo(function ScheduleTab({
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
               ) : null}
               Add to Day
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Schedule Dialog - shown after adding a manual item */}
+      <Dialog open={scheduleDialogOpen} onOpenChange={(open) => {
+        if (!open) {
+          setScheduleDialogOpen(false);
+          setPendingScheduleItem(null);
+        }
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CalendarClock className="h-5 w-5" />
+              Schedule "{pendingScheduleItem?.title}"
+            </DialogTitle>
+            <DialogDescription>
+              Would you like this item to automatically appear on other days?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>How often should this item appear?</Label>
+              <Select value={scheduleType} onValueChange={setScheduleType}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="manual">Just this day</SelectItem>
+                  <SelectItem value="daily">Every day</SelectItem>
+                  <SelectItem value="weekdays">Weekdays (Mon–Fri)</SelectItem>
+                  <SelectItem value="weekends">Weekends (Sat–Sun)</SelectItem>
+                  <SelectItem value="custom_days">Specific days of the week</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {scheduleType === "custom_days" && (
+              <div className="space-y-2">
+                <Label>Select days</Label>
+                <div className="flex gap-1.5 flex-wrap">
+                  {[
+                    { label: "Sun", value: 0 },
+                    { label: "Mon", value: 1 },
+                    { label: "Tue", value: 2 },
+                    { label: "Wed", value: 3 },
+                    { label: "Thu", value: 4 },
+                    { label: "Fri", value: 5 },
+                    { label: "Sat", value: 6 },
+                  ].map((day) => (
+                    <Button
+                      key={day.value}
+                      variant={scheduleDays.includes(day.value) ? "default" : "outline"}
+                      size="sm"
+                      className="w-12"
+                      onClick={() => {
+                        setScheduleDays(prev =>
+                          prev.includes(day.value)
+                            ? prev.filter(d => d !== day.value)
+                            : [...prev, day.value]
+                        );
+                      }}
+                    >
+                      {day.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {scheduleType !== "manual" && (
+              <div className="space-y-2">
+                <Label>Advance notice (hours before day)</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  value={cutoffLeadHours}
+                  onChange={(e) => setCutoffLeadHours(parseInt(e.target.value) || 24)}
+                  className="w-24"
+                />
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-2 pt-4">
+            <Button variant="outline" onClick={() => {
+              setScheduleDialogOpen(false);
+              setPendingScheduleItem(null);
+            }}>
+              Skip
+            </Button>
+            <Button
+              onClick={confirmSetSchedule}
+              disabled={
+                updateItemScheduleMutation.isPending ||
+                (scheduleType === "custom_days" && scheduleDays.length === 0)
+              }
+            >
+              {updateItemScheduleMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : null}
+              {scheduleType === "manual" ? "Done" : "Set Schedule"}
             </Button>
           </div>
         </DialogContent>

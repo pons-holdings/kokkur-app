@@ -29,6 +29,7 @@ import {
   UtensilsCrossed,
   Pencil,
   Trash2,
+  CalendarClock,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
@@ -69,6 +70,13 @@ const MenuItemsTab = React.memo(function MenuItemsTab({
       allergenIds: [],
       ingredientIds: [],
       servingOptions: defaultServingOptions,
+      scheduleType: "manual",
+      cutoffLeadHours: 24,
+      scheduleDays: null,
+      scheduleStartDate: null,
+      scheduleEndDate: null,
+      oneOffDate: null,
+      isScheduleActive: 1,
     },
   });
 
@@ -92,12 +100,23 @@ const MenuItemsTab = React.memo(function MenuItemsTab({
       }
       return res.json();
     },
-    onSuccess: () => {
-      toast({ title: "Food item created", description: "Your new food item has been added." });
+    onSuccess: (_data, variables) => {
+      const scheduleLabels: Record<string, string> = {
+        daily: "every day",
+        weekdays: "weekdays",
+        weekends: "weekends",
+        custom_days: "your selected days",
+      };
+      const schedLabel = scheduleLabels[variables.scheduleType || ""];
+      if (schedLabel) {
+        toast({ title: "Food item created — schedule active!", description: `This item will auto-appear on ${schedLabel} in your calendar.` });
+      } else {
+        toast({ title: "Food item created", description: "Your new food item has been added." });
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/menu-items/chef", chefId] });
       queryClient.invalidateQueries({ queryKey: ["/api/chefs"] });
       setAddItemDialogOpen(false);
-      itemForm.reset({ chefId: chefId || 0, title: "", description: "", imageUrl: "", allergenIds: [], ingredientIds: [], servingOptions: defaultServingOptions });
+      itemForm.reset({ chefId: chefId || 0, title: "", description: "", imageUrl: "", allergenIds: [], ingredientIds: [], servingOptions: defaultServingOptions, scheduleType: "manual", cutoffLeadHours: 24, scheduleDays: null, scheduleStartDate: null, scheduleEndDate: null, oneOffDate: null, isScheduleActive: 1 });
     },
     onError: (error: Error) => {
       toast({ title: "Error creating item", description: error.message, variant: "destructive" });
@@ -117,8 +136,19 @@ const MenuItemsTab = React.memo(function MenuItemsTab({
       }
       return res.json();
     },
-    onSuccess: () => {
-      toast({ title: "Food item updated", description: "Your food item has been updated." });
+    onSuccess: (_data, variables) => {
+      const scheduleLabels: Record<string, string> = {
+        daily: "every day",
+        weekdays: "weekdays",
+        weekends: "weekends",
+        custom_days: "your selected days",
+      };
+      const schedLabel = scheduleLabels[variables.data.scheduleType || ""];
+      if (schedLabel) {
+        toast({ title: "Food item updated — schedule active!", description: `This item will auto-appear on ${schedLabel} in your calendar.` });
+      } else {
+        toast({ title: "Food item updated", description: "Your food item has been updated." });
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/menu-items/chef", chefId] });
       queryClient.invalidateQueries({ queryKey: ["/api/chefs"] });
       setEditItemDialogOpen(false);
@@ -163,6 +193,7 @@ const MenuItemsTab = React.memo(function MenuItemsTab({
       price: o.price,
       isDefault: o.isDefault === 1,
     })) || defaultServingOptions;
+    const anyItem = item as any;
     itemForm.reset({
       chefId: chefId || 0,
       title: item.title,
@@ -171,6 +202,13 @@ const MenuItemsTab = React.memo(function MenuItemsTab({
       allergenIds: item.allergens?.map(a => a.id) || [],
       ingredientIds: item.ingredients?.map(i => i.id) || [],
       servingOptions: mappedServingOptions,
+      scheduleType: anyItem.scheduleType || "manual",
+      cutoffLeadHours: anyItem.cutoffLeadHours || 24,
+      scheduleDays: anyItem.scheduleDays || null,
+      scheduleStartDate: anyItem.scheduleStartDate ? new Date(anyItem.scheduleStartDate).toISOString().split("T")[0] : null,
+      scheduleEndDate: anyItem.scheduleEndDate ? new Date(anyItem.scheduleEndDate).toISOString().split("T")[0] : null,
+      oneOffDate: anyItem.oneOffDate ? new Date(anyItem.oneOffDate).toISOString().split("T")[0] : null,
+      isScheduleActive: anyItem.isScheduleActive ?? 1,
     });
     setEditItemDialogOpen(true);
   }, [chefId, itemForm]);
@@ -194,6 +232,44 @@ const MenuItemsTab = React.memo(function MenuItemsTab({
       deleteMenuItemMutation.mutate(deleteItemId);
     }
   }, [deleteItemId, deleteMenuItemMutation]);
+
+  const getScheduleBadge = useCallback((item: MenuItemWithDetails) => {
+    const anyItem = item as any;
+    const type = anyItem.scheduleType;
+    if (!type || type === "manual") return null;
+
+    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    let label = "";
+    switch (type) {
+      case "daily": label = "Every day"; break;
+      case "weekdays": label = "Weekdays"; break;
+      case "weekends": label = "Weekends"; break;
+      case "one_off":
+        label = anyItem.oneOffDate
+          ? new Date(anyItem.oneOffDate).toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " only"
+          : "One-time";
+        break;
+      case "custom_days":
+        label = (anyItem.scheduleDays || []).map((d: number) => dayNames[d]).join(", ");
+        break;
+    }
+
+    const hours = anyItem.cutoffLeadHours || 24;
+    const cutoffLabel = hours >= 24 ? `${Math.floor(hours / 24)}d notice` : `${hours}h notice`;
+
+    return (
+      <div className="flex flex-wrap gap-1">
+        <Badge variant="secondary" className="text-xs">
+          <CalendarClock className="h-3 w-3 mr-1" />
+          {label}
+        </Badge>
+        <Badge variant="outline" className="text-xs">{cutoffLabel}</Badge>
+        {anyItem.isScheduleActive === 0 && (
+          <Badge variant="destructive" className="text-xs">Paused</Badge>
+        )}
+      </div>
+    );
+  }, []);
 
   const priceDisplay = useCallback((item: MenuItemWithDetails) => {
     const opts = item.servingOptions || [];
@@ -289,6 +365,7 @@ const MenuItemsTab = React.memo(function MenuItemsTab({
                   {priceDisplay(item)}
                   <span className="text-sm text-muted-foreground">{item.servingOptions?.length || 0} serving option(s)</span>
                 </div>
+                {getScheduleBadge(item)}
                 {item.allergens && item.allergens.length > 0 && (
                   <div className="flex flex-wrap gap-1">
                     {item.allergens.map((a) => (

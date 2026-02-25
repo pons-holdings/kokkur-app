@@ -5,6 +5,13 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Form,
   FormControl,
   FormField,
@@ -21,9 +28,11 @@ import {
   Upload,
   ImageIcon,
   X,
+  CalendarClock,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { MenuItemFormData, Allergen } from "./types";
+import type { ScheduleType } from "./types";
 
 interface MenuItemFormTestIds {
   titleInput: string;
@@ -254,6 +263,180 @@ const MenuItemFormComponent = React.memo(function MenuItemFormComponent({
             </FormItem>
           )}
         />
+
+        {/* Availability / Scheduling Section */}
+        <div className="space-y-4 border rounded-lg p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <CalendarClock className="h-4 w-4 text-primary" />
+            <h3 className="font-medium">Availability</h3>
+          </div>
+          <FormDescription>Set up automatic scheduling so this item appears on the right dates without manual setup.</FormDescription>
+
+          <FormField
+            control={form.control}
+            name="scheduleType"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Schedule Type</FormLabel>
+                <Select value={field.value || "manual"} onValueChange={field.onChange}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select schedule type" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="manual">Not scheduled (manual)</SelectItem>
+                    <SelectItem value="one_off">One-time date</SelectItem>
+                    <SelectItem value="daily">Every day</SelectItem>
+                    <SelectItem value="weekdays">Weekdays (Mon-Fri)</SelectItem>
+                    <SelectItem value="weekends">Weekends (Sat-Sun)</SelectItem>
+                    <SelectItem value="custom_days">Specific days of the week</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          {/* One-off date picker */}
+          {form.watch("scheduleType") === "one_off" && (
+            <FormField
+              control={form.control}
+              name="oneOffDate"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Date</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="date"
+                      value={field.value || ""}
+                      onChange={(e) => field.onChange(e.target.value || null)}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          )}
+
+          {/* Custom days checkboxes */}
+          {form.watch("scheduleType") === "custom_days" && (
+            <FormField
+              control={form.control}
+              name="scheduleDays"
+              render={({ field }) => {
+                const days = [
+                  { value: 1, label: "Mon" },
+                  { value: 2, label: "Tue" },
+                  { value: 3, label: "Wed" },
+                  { value: 4, label: "Thu" },
+                  { value: 5, label: "Fri" },
+                  { value: 6, label: "Sat" },
+                  { value: 0, label: "Sun" },
+                ];
+                const selected = field.value || [];
+                return (
+                  <FormItem>
+                    <FormLabel>Days of the week</FormLabel>
+                    <div className="flex flex-wrap gap-2">
+                      {days.map((day) => (
+                        <Button
+                          key={day.value}
+                          type="button"
+                          variant={selected.includes(day.value) ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => {
+                            const newDays = selected.includes(day.value)
+                              ? selected.filter((d: number) => d !== day.value)
+                              : [...selected, day.value];
+                            field.onChange(newDays.length > 0 ? newDays : null);
+                          }}
+                        >
+                          {day.label}
+                        </Button>
+                      ))}
+                    </div>
+                    <FormMessage />
+                  </FormItem>
+                );
+              }}
+            />
+          )}
+
+          {/* Start/End dates for recurring types */}
+          {form.watch("scheduleType") && form.watch("scheduleType") !== "manual" && form.watch("scheduleType") !== "one_off" && (
+            <div className="grid grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="scheduleStartDate"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Start date (optional)</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="date"
+                        value={field.value || ""}
+                        onChange={(e) => field.onChange(e.target.value || null)}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="scheduleEndDate"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>End date (optional)</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="date"
+                        value={field.value || ""}
+                        onChange={(e) => field.onChange(e.target.value || null)}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+          )}
+
+          {/* Cutoff lead time */}
+          {form.watch("scheduleType") && form.watch("scheduleType") !== "manual" && (
+            <FormField
+              control={form.control}
+              name="cutoffLeadHours"
+              render={({ field }) => {
+                const hours = field.value || 24;
+                const displayDays = Math.floor(hours / 24);
+                const displayHours = hours % 24;
+                return (
+                  <FormItem>
+                    <FormLabel>Advance notice required</FormLabel>
+                    <FormDescription>How far in advance must customers order?</FormDescription>
+                    <div className="flex items-center gap-2">
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min="1"
+                          value={field.value || 24}
+                          onChange={(e) => field.onChange(parseInt(e.target.value) || 24)}
+                          className="w-24"
+                        />
+                      </FormControl>
+                      <span className="text-sm text-muted-foreground">
+                        hours ({displayDays > 0 ? `${displayDays}d` : ""}{displayHours > 0 ? `${displayHours}h` : displayDays > 0 ? "" : "0h"})
+                      </span>
+                    </div>
+                    <FormMessage />
+                  </FormItem>
+                );
+              }}
+            />
+          )}
+        </div>
 
         <div className="flex justify-end gap-3 pt-4">
           <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>

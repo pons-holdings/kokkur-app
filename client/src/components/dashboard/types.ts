@@ -21,6 +21,9 @@ export const servingOptionSchema = z.object({
   isDefault: z.boolean(),
 });
 
+export const scheduleTypes = ["manual", "one_off", "daily", "weekdays", "weekends", "custom_days"] as const;
+export type ScheduleType = typeof scheduleTypes[number];
+
 export const menuItemSchema = z.object({
   chefId: z.number(),
   title: z.string().min(2, "Title must be at least 2 characters"),
@@ -29,6 +32,14 @@ export const menuItemSchema = z.object({
   allergenIds: z.array(z.number()).default([]),
   ingredientIds: z.array(z.number()).default([]),
   servingOptions: z.array(servingOptionSchema).min(1, "At least one serving option is required"),
+  // Schedule fields
+  scheduleType: z.enum(scheduleTypes).default("manual"),
+  cutoffLeadHours: z.number().int().min(1).default(24),
+  scheduleDays: z.array(z.number()).nullable().optional(),
+  scheduleStartDate: z.string().nullable().optional(),
+  scheduleEndDate: z.string().nullable().optional(),
+  oneOffDate: z.string().nullable().optional(),
+  isScheduleActive: z.number().int().min(0).max(1).default(1),
 });
 
 export type MenuItemFormData = z.infer<typeof menuItemSchema>;

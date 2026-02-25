@@ -10,6 +10,7 @@ export interface CartItem {
   chef: ChefProfile;
   daySlotId: number;
   daySlotDate: string; // ISO string for display
+  fulfillmentDate?: string; // ISO date string — direct date reference
 }
 
 export interface CartState {
@@ -82,7 +83,7 @@ export const useCartStore = create<CartState>()(
           set({
             items: [
               ...state.items,
-              { menuItem: item, servingOption: option, quantity: 1, chefId: chef.id, chef, daySlotId, daySlotDate },
+              { menuItem: item, servingOption: option, quantity: 1, chefId: chef.id, chef, daySlotId, daySlotDate, fulfillmentDate: daySlotDate },
             ],
           });
         }
