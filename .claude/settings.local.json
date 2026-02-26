@@ -144,7 +144,9 @@
       "Bash(npx tsc --noEmit 2>&1 | grep -E \"\\(ScheduleTab|shared/schema|routes\\\\.ts\\)\" | head -20)",
       "Bash(npx tsc --noEmit 2>&1 | grep \"ScheduleTab\" | head -10)",
       "Bash(npx tsc --noEmit 2>&1 | grep \"routes\\\\.ts\" | head -10)",
-      "Bash(npx tsc --noEmit 2>&1 | grep -E \"\\(dashboard|MenuItemsTab|ScheduleTab\\)\" | head -20)"
+      "Bash(npx tsc --noEmit 2>&1 | grep -E \"\\(dashboard|MenuItemsTab|ScheduleTab\\)\" | head -20)",
+      "Bash(npx tsc --noEmit 2>&1 | head -80)",
+      "Bash(npx tsc --noEmit 2>&1 | grep \"ScheduleTab\\\\|dashboard.tsx\")"
     ]
   }
 }

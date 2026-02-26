@@ -1,6 +1,8 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { format, eachDayOfInterval, parseISO, isSameDay, isSameMonth, startOfMonth, endOfMonth, addMonths, subMonths, startOfWeek, endOfWeek } from "date-fns";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { format, eachDayOfInterval, parseISO, isSameDay, isSameMonth, startOfMonth, endOfMonth, addMonths, subMonths, startOfWeek, endOfWeek, subDays } from "date-fns";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +31,16 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogCancel,
+  AlertDialogAction,
+} from "@/components/ui/alert-dialog";
+import {
   Plus,
   Loader2,
   X,
@@ -39,10 +51,15 @@ import {
   Archive,
   Zap,
   CalendarClock,
+  Pencil,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { computeScheduleForDateRange } from "@/lib/schedule-utils";
+import MenuItemFormComponent from "./MenuItemForm";
+import { menuItemSchema, defaultServingOptions } from "./types";
+import type { MenuItemFormData, Allergen } from "./types";
+import type { ServingOptionInput } from "@/components/serving-options-editor";
 import type {
   ChefProfileWithDaySlots,
   MenuItemWithDetails,
@@ -54,11 +71,13 @@ import type {
 interface ScheduleTabProps {
   selectedChef: ChefProfileWithDaySlots | undefined;
   chefMenuItems: MenuItemWithDetails[] | undefined;
+  allergens: Allergen[] | undefined;
 }
 
 const ScheduleTab = React.memo(function ScheduleTab({
   selectedChef,
   chefMenuItems,
+  allergens,
 }: ScheduleTabProps) {
   const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set());
   const [itemSearchQuery, setItemSearchQuery] = useState("");
@@ -78,7 +97,40 @@ const ScheduleTab = React.memo(function ScheduleTab({
   const [scheduleDays, setScheduleDays] = useState<number[]>([]);
   const [cutoffLeadHours, setCutoffLeadHours] = useState(24);
 
+  // Scope dialog (shared for edit & delete)
+  const [scopeDialogOpen, setScopeDialogOpen] = useState(false);
+  const [scopeDialogMode, setScopeDialogMode] = useState<"edit" | "delete">("edit");
+  const [scopeDialogItem, setScopeDialogItem] = useState<MenuItemWithDetails | null>(null);
+  const [scopeDialogDateKey, setScopeDialogDateKey] = useState<string | null>(null);
+  const [scopeDialogSlot, setScopeDialogSlot] = useState<DaySlotWithItems | null>(null);
+  const [scopeDialogAssignedItem, setScopeDialogAssignedItem] = useState<MenuItemWithAssignment | null>(null);
+
+  // Edit all future instances dialog
+  const [editAllDialogOpen, setEditAllDialogOpen] = useState(false);
+  const [editingItemForAll, setEditingItemForAll] = useState<MenuItemWithDetails | null>(null);
+
   const { toast } = useToast();
+
+  // Edit-all form (for "all future instances" edit)
+  const editAllForm = useForm<MenuItemFormData>({
+    resolver: zodResolver(menuItemSchema),
+    defaultValues: {
+      chefId: selectedChef?.id || 0,
+      title: "",
+      description: "",
+      imageUrl: "",
+      allergenIds: [],
+      ingredientIds: [],
+      servingOptions: defaultServingOptions,
+      scheduleType: "manual",
+      cutoffLeadHours: 24,
+      scheduleDays: null,
+      scheduleStartDate: null,
+      scheduleEndDate: null,
+      oneOffDate: null,
+      isScheduleActive: 1,
+    },
+  });
 
   // Debounce the search query
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -110,6 +162,37 @@ const ScheduleTab = React.memo(function ScheduleTab({
       setDebouncedSearchQuery("");
     }
   }, [itemSearchQuery]);
+
+  // Populate edit-all form when editingItemForAll changes
+  useEffect(() => {
+    if (editingItemForAll && editAllDialogOpen) {
+      const item = editingItemForAll;
+      const mappedServingOptions: ServingOptionInput[] = item.servingOptions?.map(o => ({
+        id: o.id,
+        servingSize: o.servingSize,
+        label: o.label,
+        price: o.price,
+        isDefault: o.isDefault === 1,
+      })) || defaultServingOptions;
+      const anyItem = item as any;
+      editAllForm.reset({
+        chefId: selectedChef?.id || 0,
+        title: item.title,
+        description: item.description || "",
+        imageUrl: item.coverPhoto || "",
+        allergenIds: item.allergens?.map(a => a.id) || [],
+        ingredientIds: item.ingredients?.map(i => i.id) || [],
+        servingOptions: mappedServingOptions,
+        scheduleType: anyItem.scheduleType || "manual",
+        cutoffLeadHours: anyItem.cutoffLeadHours || 24,
+        scheduleDays: anyItem.scheduleDays || null,
+        scheduleStartDate: anyItem.scheduleStartDate ? new Date(anyItem.scheduleStartDate).toISOString().split("T")[0] : null,
+        scheduleEndDate: anyItem.scheduleEndDate ? new Date(anyItem.scheduleEndDate).toISOString().split("T")[0] : null,
+        oneOffDate: anyItem.oneOffDate ? new Date(anyItem.oneOffDate).toISOString().split("T")[0] : null,
+        isScheduleActive: anyItem.isScheduleActive ?? 1,
+      });
+    }
+  }, [editingItemForAll, editAllDialogOpen, editAllForm, selectedChef?.id]);
 
   // Open schedule dialog after serving size dialog finishes closing
   // (delayed to avoid Radix Dialog close-animation suppressing the new dialog)
@@ -237,6 +320,31 @@ const ScheduleTab = React.memo(function ScheduleTab({
     },
     onError: (error: Error) => {
       toast({ title: "Error updating schedule", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const editAllMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: Partial<MenuItemFormData> }) => {
+      const res = await fetch(`/api/menu-items/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to update item");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Food item updated", description: "All future instances have been updated." });
+      queryClient.invalidateQueries({ queryKey: ["/api/chefs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/menu-items/chef", selectedChef?.id] });
+      setEditAllDialogOpen(false);
+      setEditingItemForAll(null);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error updating item", description: error.message, variant: "destructive" });
     },
   });
 
@@ -421,6 +529,143 @@ const ScheduleTab = React.memo(function ScheduleTab({
       toast({ title: "Error removing item from day", description: error.message, variant: "destructive" });
     },
   });
+
+  // Entry point for edit/delete actions on items
+  const handleItemAction = useCallback((
+    mode: "edit" | "delete",
+    item: MenuItemWithDetails,
+    dateKey: string,
+    slot: DaySlotWithItems | null,
+    assignedItem: MenuItemWithAssignment | null,
+  ) => {
+    const anyItem = item as any;
+    const isRecurring = anyItem.scheduleType && anyItem.scheduleType !== "manual" && anyItem.isScheduleActive;
+
+    if (isRecurring) {
+      // Open scope dialog for recurring items
+      setScopeDialogMode(mode);
+      setScopeDialogItem(item);
+      setScopeDialogDateKey(dateKey);
+      setScopeDialogSlot(slot);
+      setScopeDialogAssignedItem(assignedItem);
+      setScopeDialogOpen(true);
+    } else {
+      // Direct action for manual items
+      if (mode === "delete") {
+        if (assignedItem && slot) {
+          handleRemoveItemFromDay(slot.id, item.id);
+        }
+      } else {
+        // Edit: open serving size dialog for this day
+        if (assignedItem && slot) {
+          const initialSelections = new Map<number, ServingSizeSelection>();
+          (item.servingOptions || []).forEach(opt => {
+            const existing = assignedItem.assignedServingOptions?.find(aso => aso.servingOption.id === opt.id);
+            initialSelections.set(opt.id, {
+              selected: !!existing,
+              stockLimited: existing ? existing.stockLimited === 1 : false,
+              stockQuantity: existing?.stockQuantity || 10,
+            });
+          });
+          setSelectedServingSizes(initialSelections);
+          setPendingItemToAdd({ item, daySlotId: slot.id, dateKey });
+          setServingSizeDialogOpen(true);
+        }
+      }
+    }
+  }, [handleRemoveItemFromDay]);
+
+  // "This day only" scope handler
+  const handleScopeThisDay = useCallback(async () => {
+    if (!scopeDialogItem || !scopeDialogDateKey) return;
+
+    if (scopeDialogMode === "delete") {
+      if (scopeDialogAssignedItem && scopeDialogSlot) {
+        await handleRemoveItemFromDay(scopeDialogSlot.id, scopeDialogItem.id);
+      } else {
+        await addExceptionMutation.mutateAsync({
+          menuItemId: scopeDialogItem.id,
+          exceptionDate: scopeDialogDateKey,
+        });
+        toast({ title: "Removed from this day", description: "The recurring schedule is unchanged." });
+      }
+    } else {
+      // Edit this day: open serving size dialog
+      if (scopeDialogAssignedItem && scopeDialogSlot) {
+        // Already materialized — open serving size editor pre-populated
+        const initialSelections = new Map<number, ServingSizeSelection>();
+        (scopeDialogItem.servingOptions || []).forEach(opt => {
+          const existing = scopeDialogAssignedItem.assignedServingOptions?.find(aso => aso.servingOption.id === opt.id);
+          initialSelections.set(opt.id, {
+            selected: !!existing,
+            stockLimited: existing ? existing.stockLimited === 1 : false,
+            stockQuantity: existing?.stockQuantity || 10,
+          });
+        });
+        setSelectedServingSizes(initialSelections);
+        setPendingItemToAdd({ item: scopeDialogItem, daySlotId: scopeDialogSlot.id, dateKey: scopeDialogDateKey });
+        setServingSizeDialogOpen(true);
+      } else if (selectedChef) {
+        // Not materialized — create day slot + assignment first, then open serving size dialog
+        await handleAddItemToDay(scopeDialogItem, null, scopeDialogDateKey);
+      }
+    }
+
+    setScopeDialogOpen(false);
+    setScopeDialogItem(null);
+    setScopeDialogDateKey(null);
+    setScopeDialogSlot(null);
+    setScopeDialogAssignedItem(null);
+  }, [scopeDialogMode, scopeDialogItem, scopeDialogDateKey, scopeDialogSlot, scopeDialogAssignedItem, handleRemoveItemFromDay, addExceptionMutation, toast, selectedChef, handleAddItemToDay]);
+
+  // "All future instances" scope handler
+  const handleScopeAllFuture = useCallback(async () => {
+    if (!scopeDialogItem || !scopeDialogDateKey) return;
+
+    if (scopeDialogMode === "delete") {
+      // Set scheduleEndDate to day before selected date
+      const selectedDate = parseISO(scopeDialogDateKey);
+      const dayBefore = format(subDays(selectedDate, 1), "yyyy-MM-dd");
+      const anyItem = scopeDialogItem as any;
+      const startDate = anyItem.scheduleStartDate ? format(new Date(anyItem.scheduleStartDate), "yyyy-MM-dd") : null;
+
+      if (startDate && scopeDialogDateKey <= startDate) {
+        // Selected date is on or before start — deactivate entirely
+        await updateItemScheduleMutation.mutateAsync({
+          itemId: scopeDialogItem.id,
+          data: { isScheduleActive: 0 },
+        });
+        toast({ title: "Schedule deactivated", description: `${scopeDialogItem.title} will no longer auto-appear on scheduled days.` });
+      } else {
+        await updateItemScheduleMutation.mutateAsync({
+          itemId: scopeDialogItem.id,
+          data: { scheduleEndDate: dayBefore },
+        });
+        toast({ title: "Schedule ended", description: `${scopeDialogItem.title} will no longer appear from ${format(selectedDate, "MMM d")} onwards.` });
+      }
+
+      // Also remove the materialized assignment if it exists
+      if (scopeDialogAssignedItem && scopeDialogSlot) {
+        await handleRemoveItemFromDay(scopeDialogSlot.id, scopeDialogItem.id);
+      }
+    } else {
+      // Edit all future — open full edit form
+      setEditingItemForAll(scopeDialogItem);
+      setEditAllDialogOpen(true);
+    }
+
+    setScopeDialogOpen(false);
+    setScopeDialogItem(null);
+    setScopeDialogDateKey(null);
+    setScopeDialogSlot(null);
+    setScopeDialogAssignedItem(null);
+  }, [scopeDialogMode, scopeDialogItem, scopeDialogDateKey, scopeDialogSlot, scopeDialogAssignedItem, updateItemScheduleMutation, toast, handleRemoveItemFromDay]);
+
+  // Submit handler for edit-all form
+  const handleEditAllSubmit = useCallback((data: MenuItemFormData) => {
+    if (!editingItemForAll) return;
+    editAllMutation.mutate({ id: editingItemForAll.id, data });
+  }, [editingItemForAll, editAllMutation]);
 
   // Helper: get merged item count for a date (computed + materialized, deduplicated)
   const getMergedItemsForDate = useCallback((dateKey: string): { items: MenuItemWithDetails[]; sources: Map<number, "schedule" | "manual"> } => {
@@ -702,7 +947,7 @@ const ScheduleTab = React.memo(function ScheduleTab({
                       className={`relative min-h-[90px] p-1.5 cursor-pointer border-r last:border-r-0 transition-colors
                         ${!isCurrentMonth ? "bg-muted/30 text-muted-foreground" : ""}
                         ${isSelected ? "bg-primary/10 ring-2 ring-primary ring-inset" : "hover:bg-accent/50"}
-                        ${isToday && !isSelected ? "bg-accent" : ""}
+                        ${isToday && !isSelected ? "bg-primary/5 ring-1 ring-primary/30 ring-inset" : ""}
                       `}
                       onClick={() => {
                         setSelectedCalendarDate(dateKey);
@@ -826,27 +1071,25 @@ const ScheduleTab = React.memo(function ScheduleTab({
                                         <Badge variant="outline" className="text-xs flex-shrink-0">Manual</Badge>
                                       )}
                                     </div>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-6 w-6 text-destructive flex-shrink-0"
-                                      onClick={async () => {
-                                        if (assignedItem && selectedSlot) {
-                                          // Has materialized assignment — use existing remove endpoint (creates exception for scheduled items)
-                                          await handleRemoveItemFromDay(selectedSlot.id, item.id);
-                                        } else {
-                                          // Only in computed view — create exception directly
-                                          await addExceptionMutation.mutateAsync({
-                                            menuItemId: item.id,
-                                            exceptionDate: selectedDateKey!,
-                                          });
-                                          toast({ title: "Removed from this day", description: "The recurring schedule is unchanged." });
-                                        }
-                                      }}
-                                      disabled={removeItemFromDaySlotMutation.isPending || addExceptionMutation.isPending}
-                                    >
-                                      <X className="h-4 w-4" />
-                                    </Button>
+                                    <div className="flex items-center gap-1">
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-6 w-6"
+                                        onClick={() => handleItemAction("edit", item, selectedDateKey!, selectedSlot || null, assignedItem || null)}
+                                      >
+                                        <Pencil className="h-3 w-3" />
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-6 w-6 text-destructive flex-shrink-0"
+                                        onClick={() => handleItemAction("delete", item, selectedDateKey!, selectedSlot || null, assignedItem || null)}
+                                        disabled={removeItemFromDaySlotMutation.isPending || addExceptionMutation.isPending}
+                                      >
+                                        <X className="h-4 w-4" />
+                                      </Button>
+                                    </div>
                                   </div>
                                   {/* Show assigned serving options if materialized */}
                                   {assignedItem?.assignedServingOptions && assignedItem.assignedServingOptions.length > 0 && (
@@ -974,9 +1217,6 @@ const ScheduleTab = React.memo(function ScheduleTab({
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  {existingSlot && (
-                    <Badge variant="default">{itemCount} item{itemCount !== 1 ? "s" : ""}</Badge>
-                  )}
                   {isExpanded ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
                 </div>
               </div>
@@ -1020,8 +1260,126 @@ const ScheduleTab = React.memo(function ScheduleTab({
                       </div>
                     )}
 
-                    {/* Assigned items display */}
-                    {existingSlot && renderAssignedItems(existingSlot, dateKey)}
+                    {/* Merged items display (computed + materialized) */}
+                    {mergedMobile.items.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-sm font-medium">Scheduled items:</p>
+                        <div className="space-y-2">
+                          {mergedMobile.items.map((item) => {
+                            const source = mergedMobile.sources.get(item.id);
+                            const assignedItem = existingSlot?.items?.find((ai: MenuItemWithAssignment) => ai.id === item.id);
+                            return (
+                              <div key={item.id} className="p-3 rounded-lg border bg-primary/5 border-primary/20">
+                                <div className="flex items-start gap-3">
+                                  {item.coverPhoto && (
+                                    <img src={item.coverPhoto} alt={item.title} className="w-12 h-12 rounded object-cover flex-shrink-0" />
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <p className="font-medium truncate">{item.title}</p>
+                                        {source === "schedule" && (
+                                          <Badge variant="secondary" className="text-xs flex-shrink-0">
+                                            <CalendarClock className="h-3 w-3 mr-1" />
+                                            {getScheduleLabel(item.scheduleType) || "Scheduled"}
+                                          </Badge>
+                                        )}
+                                        {source === "manual" && (
+                                          <Badge variant="outline" className="text-xs flex-shrink-0">Manual</Badge>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-1">
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-6 w-6"
+                                          onClick={() => handleItemAction("edit", item, dateKey, existingSlot || null, assignedItem || null)}
+                                        >
+                                          <Pencil className="h-3 w-3" />
+                                        </Button>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-6 w-6 text-destructive flex-shrink-0"
+                                          onClick={() => handleItemAction("delete", item, dateKey, existingSlot || null, assignedItem || null)}
+                                          disabled={removeItemFromDaySlotMutation.isPending || addExceptionMutation.isPending}
+                                          data-testid={`button-remove-item-${dateKey}-${item.id}`}
+                                        >
+                                          <X className="h-4 w-4" />
+                                        </Button>
+                                      </div>
+                                    </div>
+                                    {/* Show assigned serving options if materialized */}
+                                    {assignedItem?.assignedServingOptions && assignedItem.assignedServingOptions.length > 0 && (
+                                      <div className="mt-2 space-y-1">
+                                        {assignedItem.assignedServingOptions.map((aso) => (
+                                          <div key={aso.id} className="flex items-center justify-between text-sm pl-2 border-l-2 border-muted">
+                                            <div className="flex items-center gap-2">
+                                              <span>{aso.servingOption.label}</span>
+                                              <span className="text-muted-foreground">${aso.servingOption.price.toFixed(2)}</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                              {aso.stockLimited === 1 ? (
+                                                <div className="flex items-center gap-1">
+                                                  <Input
+                                                    type="number"
+                                                    min="1"
+                                                    defaultValue={aso.stockQuantity || 10}
+                                                    className="w-16 h-6 text-xs px-1"
+                                                    onBlur={(e) => {
+                                                      const qty = parseInt(e.target.value) || 1;
+                                                      if (qty !== aso.stockQuantity) {
+                                                        updateAssignmentServingOptionMutation.mutate({ id: aso.id, stockLimited: true, stockQuantity: qty });
+                                                      }
+                                                    }}
+                                                    onKeyDown={(e) => {
+                                                      if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                                                    }}
+                                                  />
+                                                  <Badge
+                                                    variant="secondary"
+                                                    className="text-xs cursor-pointer hover:bg-secondary/80"
+                                                    onClick={() => updateAssignmentServingOptionMutation.mutate({ id: aso.id, stockLimited: false })}
+                                                  >
+                                                    Limited
+                                                  </Badge>
+                                                </div>
+                                              ) : (
+                                                <Badge
+                                                  variant="outline"
+                                                  className="text-xs cursor-pointer hover:bg-accent"
+                                                  onClick={() => updateAssignmentServingOptionMutation.mutate({ id: aso.id, stockLimited: true, stockQuantity: aso.stockQuantity || 10 })}
+                                                >
+                                                  Unlimited
+                                                </Badge>
+                                              )}
+                                              <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-5 w-5 text-destructive"
+                                                onClick={() => removeAssignmentServingOptionMutation.mutate(aso.id)}
+                                                disabled={removeAssignmentServingOptionMutation.isPending}
+                                                data-testid={`button-remove-serving-${aso.id}`}
+                                              >
+                                                <X className="h-3 w-3" />
+                                              </Button>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                    {/* Show price range for computed-only items */}
+                                    {!assignedItem && item.servingOptions && item.servingOptions.length > 0 && (
+                                      <p className="text-sm text-muted-foreground mt-1">{renderPriceRange(item)}</p>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
 
                     {/* Search and add items section */}
                     {renderSearchAndAdd(existingSlot || undefined, dateKey, dateKey)}
@@ -1229,6 +1587,74 @@ const ScheduleTab = React.memo(function ScheduleTab({
               {scheduleType === "manual" ? "Done" : "Set Schedule"}
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Scope Dialog — "This day only" vs "All future instances" */}
+      <AlertDialog open={scopeDialogOpen} onOpenChange={(open) => {
+        if (!open) {
+          setScopeDialogOpen(false);
+          setScopeDialogItem(null);
+          setScopeDialogDateKey(null);
+          setScopeDialogSlot(null);
+          setScopeDialogAssignedItem(null);
+        }
+      }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {scopeDialogMode === "edit" ? "Edit this item" : "Remove this item"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This is a recurring item ({scopeDialogItem?.title}). Would you like to apply this change to just this day, or all future instances?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleScopeThisDay}>
+              This day only
+            </AlertDialogAction>
+            <AlertDialogAction onClick={handleScopeAllFuture}>
+              All future instances
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Edit All Future Dialog */}
+      <Dialog open={editAllDialogOpen} onOpenChange={(open) => {
+        if (!open) {
+          setEditAllDialogOpen(false);
+          setEditingItemForAll(null);
+        }
+      }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Food Item (All Future Instances)</DialogTitle>
+            <DialogDescription>
+              Changes will apply to {editingItemForAll?.title} across all future scheduled dates.
+            </DialogDescription>
+          </DialogHeader>
+          <MenuItemFormComponent
+            form={editAllForm}
+            allergens={allergens}
+            onSubmit={handleEditAllSubmit}
+            onCancel={() => {
+              setEditAllDialogOpen(false);
+              setEditingItemForAll(null);
+            }}
+            isPending={editAllMutation.isPending}
+            submitLabel="Save Changes"
+            pendingLabel="Saving..."
+            imageUploadId="edit-all-image-upload"
+            testIds={{
+              titleInput: "edit-all-title",
+              removeImageButton: "edit-all-remove-image",
+              imageUploadInput: "edit-all-image-input",
+              allergenCheckboxPrefix: "edit-all-allergen-",
+              submitButton: "edit-all-submit",
+            }}
+          />
         </DialogContent>
       </Dialog>
     </>

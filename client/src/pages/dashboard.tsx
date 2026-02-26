@@ -224,6 +224,7 @@ export default function Dashboard() {
             <ScheduleTab
               selectedChef={selectedChef}
               chefMenuItems={chefMenuItems}
+              allergens={allergens}
             />
           </TabsContent>
 
